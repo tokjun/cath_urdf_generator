@@ -122,6 +122,7 @@ class CatheterXacroGenerator:
         self.add_universal_joint_macro(robot)
         
         # Use macros to create links
+        # Link frame origin at joint, geometry extends from origin
         ET.SubElement(robot, 'xacro:catheter_link',
                      name='tip_link', mass='${tip_mass}', length='${tip_length}',
                      radius='${catheter_radius}', xyz_origin=f'0 0 {self.L1/2}')
@@ -137,29 +138,26 @@ class CatheterXacroGenerator:
                      radius='${catheter_radius}', xyz_origin=f'0 0 {self.L3/2}')
         
         # Use macros to create joints
-        current_z = self.L1
-        
+        # Position joints at the end of each parent link
         if self.bending_links > 0:
             ET.SubElement(robot, 'xacro:universal_joint',
                          name='tip_to_bending_1', parent='tip_link', child='bending_link_1',
-                         xyz_origin=f'0 0 {current_z}', spring_k='${spring_constant}')
-            current_z += self.bending_link_length
+                         xyz_origin=f'0 0 {self.L1}', spring_k='${spring_constant}')
             
             for i in range(1, self.bending_links):
                 ET.SubElement(robot, 'xacro:universal_joint',
                              name=f'bending_{i}_to_{i+1}', parent=f'bending_link_{i}',
-                             child=f'bending_link_{i+1}', xyz_origin=f'0 0 {current_z}',
+                             child=f'bending_link_{i+1}', xyz_origin=f'0 0 {self.bending_link_length}',
                              spring_k='${spring_constant}')
-                current_z += self.bending_link_length
             
             ET.SubElement(robot, 'xacro:universal_joint',
                          name=f'bending_{self.bending_links}_to_base',
                          parent=f'bending_link_{self.bending_links}', child='base_link',
-                         xyz_origin=f'0 0 {current_z}', spring_k='${spring_constant}')
+                         xyz_origin=f'0 0 {self.bending_link_length}', spring_k='${spring_constant}')
         else:
             ET.SubElement(robot, 'xacro:universal_joint',
                          name='tip_to_base', parent='tip_link', child='base_link',
-                         xyz_origin=f'0 0 {current_z}', spring_k='${spring_constant}')
+                         xyz_origin=f'0 0 {self.L1}', spring_k='${spring_constant}')
         
         return robot
     
