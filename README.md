@@ -1,6 +1,7 @@
 # Catheter Xacro Generator
 
-A Python script to generate Xacro data for flexible catheters modeled as serial links with universal joints and rotary springs.
+A Python script to generate Xacro data for flexible catheters modeled as serial links with universal joints and rotary springs. The user can provide parameters, including N, D, L1, L2, L3, K, and M to generate a serial link that mimics a flexible catheter with N links and N-1 universal joints. The serial link consists of the first and the last links representing the tip and the base links, and the remainder are in the bending section. Each joint has rotary springs with spring constant of K that generate torques to bring it back to the straight position, when the joint is rotated by the external force. D is the outer diameter of the catheter. L1, L2, and L3 are the lengths of the tip link, the bending section, and the base link. The total weight of the catheter is M.
+
 
 ## Usage
 
@@ -54,7 +55,4 @@ Or with ROS2:
 ```bash
 ros2 run xacro xacro flexible_catheter.xacro > flexible_catheter.urdf
 ```
-
-## Development
-I would like to make a Python script to generate an URDF data of a flexible catheter. The user can provide marameters, including N, D, L1, L2, L3, K, and M. Since URDF does not support flexible object, the script generate a serial link that mimics the flexible catheter. The serial link has N links and N-1 universal joints. The first and the last links are the tip and the base links, and the reminders are in the bending seciton. Each joints have rotary springs with spring constant of K that generate torques to bring it back to the straight position, when the joint is rotated by the external force. D is the outer diameter of the catheter. L1, L2, and L3 are the lengths of the tip link, the bending section, and the base link. The total weight of the catheter is M.
 
