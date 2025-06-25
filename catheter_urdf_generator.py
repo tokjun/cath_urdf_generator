@@ -38,6 +38,8 @@ class CatheterXacroGenerator:
         self.package_dir = package_dir
         self.meshes_dir = os.path.join(package_dir, "meshes")
         self.urdf_dir = os.path.join(package_dir, "urdf")
+        self.sdf_dir = os.path.join(package_dir, "sdf")
+        self.launch_dir = os.path.join(package_dir, "launch")
         
         self.validate_parameters()
         self.calculate_derived_values()
@@ -69,6 +71,10 @@ class CatheterXacroGenerator:
             os.makedirs(self.meshes_dir)
         if not os.path.exists(self.urdf_dir):
             os.makedirs(self.urdf_dir)
+        if not os.path.exists(self.sdf_dir):
+            os.makedirs(self.sdf_dir)
+        if not os.path.exists(self.launch_dir):
+            os.makedirs(self.launch_dir)
     
     def generate_cylinder_stl(self, radius, length, filename, resolution=20):
         """Generate STL file for a cylinder"""
@@ -143,8 +149,11 @@ class CatheterXacroGenerator:
 
   <exec_depend>robot_state_publisher</exec_depend>
   <exec_depend>joint_state_publisher</exec_depend>
+  <exec_depend>joint_state_publisher_gui</exec_depend>
   <exec_depend>rviz2</exec_depend>
   <exec_depend>xacro</exec_depend>
+  <exec_depend>ros_gz_sim</exec_depend>
+  <exec_depend>ros_gz_bridge</exec_depend>
 
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>
@@ -184,6 +193,11 @@ install(DIRECTORY meshes/
   DESTINATION share/${{PROJECT_NAME}}/meshes/
 )
 
+# Install SDF files
+install(DIRECTORY sdf/
+  DESTINATION share/${{PROJECT_NAME}}/sdf/
+)
+
 # Install launch files (if any)
 install(DIRECTORY launch/
   DESTINATION share/${{PROJECT_NAME}}/launch/
@@ -210,6 +224,366 @@ ament_package()'''
             f.write(cmake_content)
         
         return cmake_path
+    
+    def generate_sdf(self, xacro_filename):
+        """Generate SDF file from xacro for Gazebo"""
+        package_name = os.path.basename(self.package_dir)
+        sdf_filename = xacro_filename.replace('.xacro', '.sdf')
+        
+        # Create a simplified SDF structure based on the catheter parameters
+        sdf_content = f'''<?xml version="1.0"?>
+<sdf version="1.7">
+  <model name="{package_name}">
+    <!-- Tip link -->
+    <link name="tip_link">
+      <pose>0 0 {self.L1/2} 0 0 0</pose>
+      <inertial>
+        <mass>{self.tip_mass}</mass>
+        <inertia>
+          <ixx>{(1/12) * self.tip_mass * (3 * self.radius**2 + self.L1**2)}</ixx>
+          <iyy>{(1/12) * self.tip_mass * (3 * self.radius**2 + self.L1**2)}</iyy>
+          <izz>{0.5 * self.tip_mass * self.radius**2}</izz>
+          <ixy>0</ixy>
+          <ixz>0</ixz>
+          <iyz>0</iyz>
+        </inertia>
+      </inertial>
+      <visual name="tip_visual">
+        <geometry>
+          <mesh>
+            <uri>model://{package_name}/meshes/tip_link.stl</uri>
+          </mesh>
+        </geometry>
+        <material>
+          <ambient>0.8 0.8 0.8 1.0</ambient>
+          <diffuse>0.8 0.8 0.8 1.0</diffuse>
+        </material>
+      </visual>
+      <collision name="tip_collision">
+        <geometry>
+          <mesh>
+            <uri>model://{package_name}/meshes/tip_link.stl</uri>
+          </mesh>
+        </geometry>
+      </collision>
+    </link>
+'''
+        
+        # Add bending links
+        current_z = self.L1
+        for i in range(self.bending_links):
+            link_name = f"bending_link_{i+1}"
+            sdf_content += f'''
+    <!-- Bending link {i+1} -->
+    <link name="{link_name}">
+      <pose>0 0 {current_z + self.bending_link_length/2} 0 0 0</pose>
+      <inertial>
+        <mass>{self.bending_mass_per_link}</mass>
+        <inertia>
+          <ixx>{(1/12) * self.bending_mass_per_link * (3 * self.radius**2 + self.bending_link_length**2)}</ixx>
+          <iyy>{(1/12) * self.bending_mass_per_link * (3 * self.radius**2 + self.bending_link_length**2)}</iyy>
+          <izz>{0.5 * self.bending_mass_per_link * self.radius**2}</izz>
+          <ixy>0</ixy>
+          <ixz>0</ixz>
+          <iyz>0</iyz>
+        </inertia>
+      </inertial>
+      <visual name="{link_name}_visual">
+        <geometry>
+          <mesh>
+            <uri>model://{package_name}/meshes/bending_link.stl</uri>
+          </mesh>
+        </geometry>
+        <material>
+          <ambient>0.8 0.8 0.8 1.0</ambient>
+          <diffuse>0.8 0.8 0.8 1.0</diffuse>
+        </material>
+      </visual>
+      <collision name="{link_name}_collision">
+        <geometry>
+          <mesh>
+            <uri>model://{package_name}/meshes/bending_link.stl</uri>
+          </mesh>
+        </geometry>
+      </collision>
+    </link>
+'''
+            current_z += self.bending_link_length
+        
+        # Add base link
+        sdf_content += f'''
+    <!-- Base link -->
+    <link name="base_link">
+      <pose>0 0 {current_z + self.L3/2} 0 0 0</pose>
+      <inertial>
+        <mass>{self.base_mass}</mass>
+        <inertia>
+          <ixx>{(1/12) * self.base_mass * (3 * self.radius**2 + self.L3**2)}</ixx>
+          <iyy>{(1/12) * self.base_mass * (3 * self.radius**2 + self.L3**2)}</iyy>
+          <izz>{0.5 * self.base_mass * self.radius**2}</izz>
+          <ixy>0</ixy>
+          <ixz>0</ixz>
+          <iyz>0</iyz>
+        </inertia>
+      </inertial>
+      <visual name="base_visual">
+        <geometry>
+          <mesh>
+            <uri>model://{package_name}/meshes/base_link.stl</uri>
+          </mesh>
+        </geometry>
+        <material>
+          <ambient>0.8 0.8 0.8 1.0</ambient>
+          <diffuse>0.8 0.8 0.8 1.0</diffuse>
+        </material>
+      </visual>
+      <collision name="base_collision">
+        <geometry>
+          <mesh>
+            <uri>model://{package_name}/meshes/base_link.stl</uri>
+          </mesh>
+        </geometry>
+      </collision>
+    </link>
+'''
+        
+        # Add joints
+        if self.bending_links > 0:
+            # Tip to first bending link
+            sdf_content += f'''
+    <!-- Joint: tip to bending_1 -->
+    <joint name="tip_to_bending_1_x" type="revolute">
+      <parent>tip_link</parent>
+      <child>bending_link_1</child>
+      <pose>0 0 0 0 0 0</pose>
+      <axis>
+        <xyz>1 0 0</xyz>
+        <limit>
+          <lower>{-math.pi/2}</lower>
+          <upper>{math.pi/2}</upper>
+          <effort>100</effort>
+          <velocity>10</velocity>
+        </limit>
+        <dynamics>
+          <damping>0.1</damping>
+          <friction>0.01</friction>
+          <spring_stiffness>{self.K}</spring_stiffness>
+        </dynamics>
+      </axis>
+    </joint>
+'''
+            
+            # Bending link joints
+            for i in range(1, self.bending_links):
+                sdf_content += f'''
+    <!-- Joint: bending_{i} to bending_{i+1} -->
+    <joint name="bending_{i}_to_{i+1}_x" type="revolute">
+      <parent>bending_link_{i}</parent>
+      <child>bending_link_{i+1}</child>
+      <pose>0 0 0 0 0 0</pose>
+      <axis>
+        <xyz>1 0 0</xyz>
+        <limit>
+          <lower>{-math.pi/2}</lower>
+          <upper>{math.pi/2}</upper>
+          <effort>100</effort>
+          <velocity>10</velocity>
+        </limit>
+        <dynamics>
+          <damping>0.1</damping>
+          <friction>0.01</friction>
+          <spring_stiffness>{self.K}</spring_stiffness>
+        </dynamics>
+      </axis>
+    </joint>
+'''
+            
+            # Last bending link to base
+            sdf_content += f'''
+    <!-- Joint: bending_{self.bending_links} to base -->
+    <joint name="bending_{self.bending_links}_to_base_x" type="revolute">
+      <parent>bending_link_{self.bending_links}</parent>
+      <child>base_link</child>
+      <pose>0 0 0 0 0 0</pose>
+      <axis>
+        <xyz>1 0 0</xyz>
+        <limit>
+          <lower>{-math.pi/2}</lower>
+          <upper>{math.pi/2}</upper>
+          <effort>100</effort>
+          <velocity>10</velocity>
+        </limit>
+        <dynamics>
+          <damping>0.1</damping>
+          <friction>0.01</friction>
+          <spring_stiffness>{self.K}</spring_stiffness>
+        </dynamics>
+      </axis>
+    </joint>
+'''
+        else:
+            # Direct tip to base joint
+            sdf_content += f'''
+    <!-- Joint: tip to base -->
+    <joint name="tip_to_base_x" type="revolute">
+      <parent>tip_link</parent>
+      <child>base_link</child>
+      <pose>0 0 0 0 0 0</pose>
+      <axis>
+        <xyz>1 0 0</xyz>
+        <limit>
+          <lower>{-math.pi/2}</lower>
+          <upper>{math.pi/2}</upper>
+          <effort>100</effort>
+          <velocity>10</velocity>
+        </limit>
+        <dynamics>
+          <damping>0.1</damping>
+          <friction>0.01</friction>
+          <spring_stiffness>{self.K}</spring_stiffness>
+        </dynamics>
+      </axis>
+    </joint>
+'''
+        
+        # Close the model and sdf tags
+        sdf_content += '''  </model>
+</sdf>'''
+        
+        # Save SDF file
+        sdf_path = os.path.join(self.sdf_dir, sdf_filename)
+        with open(sdf_path, 'w') as f:
+            f.write(sdf_content)
+        
+        return sdf_path
+    
+    def generate_launch_file(self, xacro_filename):
+        """Generate ROS2 launch file for the catheter"""
+        package_name = os.path.basename(self.package_dir)
+        launch_filename = f"{package_name}_launch.py"
+        sdf_filename = xacro_filename.replace('.xacro', '.sdf')
+        
+        launch_content = f'''# Copyright 2019 Open Source Robotics Foundation, Inc.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+import os
+
+from ament_index_python.packages import get_package_share_directory
+from launch import LaunchDescription
+from launch.actions import IncludeLaunchDescription, TimerAction
+from launch.launch_description_sources import PythonLaunchDescriptionSource
+from launch_ros.actions import Node
+import xacro
+
+
+def generate_launch_description():
+
+    # Package Directories
+    pkg_share = get_package_share_directory('{package_name}')
+    pkg_ros_gz_sim = get_package_share_directory('ros_gz_sim')
+
+    # Parse robot description from xacro
+    robot_description_file = os.path.join(pkg_share, 'urdf', '{xacro_filename}')
+    robot_description_config = xacro.process_file(robot_description_file)
+    robot_description = {{'robot_description': robot_description_config.toxml()}}
+
+    # Robot state publisher
+    robot_state_publisher = Node(
+        package='robot_state_publisher',
+        executable='robot_state_publisher',
+        name='robot_state_publisher',
+        output='both',
+        parameters=[robot_description],
+    )
+
+    # Joint state publisher (optional - uncomment for GUI control)
+    joint_state_publisher_gui = Node(
+        package='joint_state_publisher_gui',
+        executable='joint_state_publisher_gui',
+        name='joint_state_publisher_gui',
+        output='screen'
+    )
+
+    # Gazebo Sim
+    gazebo = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            os.path.join(pkg_ros_gz_sim, 'launch', 'gz_sim.launch.py')
+        ),
+        launch_arguments={{'gz_args': '-r empty.sdf'}}.items(),
+    )
+
+    # RViz
+    rviz = Node(
+        package='rviz2',
+        executable='rviz2',
+        name='rviz2',
+        output='screen'
+    )
+
+    # Spawn robot in Gazebo
+    spawn = Node(
+        package='ros_gz_sim',
+        executable='create',
+        parameters=[{{'name': '{package_name}_model',
+                    'file': os.path.join(pkg_share, 'sdf', '{sdf_filename}')}}],
+        output='screen',
+    )
+
+    # Gz - ROS Bridge for joint states and pose
+    bridge = Node(
+        package='ros_gz_bridge',
+        executable='parameter_bridge',
+        arguments=[
+            '/model/{package_name}_model/pose@geometry_msgs/msg/PoseStamped[gz.msgs.Pose',
+            '/world/empty/model/{package_name}_model/joint_state@sensor_msgs/msg/JointState[gz.msgs.Model'
+        ],
+        remappings=[
+            ('/world/empty/model/{package_name}_model/joint_state', '/joint_states'),
+        ],
+        output='screen'
+    )
+
+    # Delay RViz startup to ensure other nodes are ready
+    delayed_rviz = TimerAction(
+        period=3.0,
+        actions=[rviz]
+    )
+
+    return LaunchDescription(
+        [
+            # Launch Gazebo
+            gazebo,
+            # Spawn the robot model
+            spawn,
+            # Bridge Gazebo and ROS2
+            bridge,
+            # Publish robot state
+            robot_state_publisher,
+            # Uncomment the next line to enable joint state publisher GUI
+            # joint_state_publisher_gui,
+            # Launch RViz with delay
+            delayed_rviz,
+        ]
+    )
+'''
+        
+        # Save launch file
+        launch_path = os.path.join(self.launch_dir, launch_filename)
+        with open(launch_path, 'w') as f:
+            f.write(launch_content)
+        
+        return launch_path
     
     def create_link_inertia(self, mass, length, radius):
         """Calculate inertia tensor for cylindrical link"""
@@ -459,11 +833,19 @@ ament_package()'''
         package_xml_path = self.generate_package_xml()
         cmake_path = self.generate_cmakelists_txt()
         
+        # Generate SDF file for Gazebo
+        sdf_path = self.generate_sdf(filename)
+        
+        # Generate launch file
+        launch_path = self.generate_launch_file(filename)
+        
         print(f"ROS2 package created: {self.package_dir}/")
         print(f"  Package files:")
         print(f"    - {os.path.relpath(package_xml_path, self.package_dir)}")
         print(f"    - {os.path.relpath(cmake_path, self.package_dir)}")
         print(f"  Xacro saved to: {os.path.relpath(xacro_path, self.package_dir)}")
+        print(f"  SDF saved to: {os.path.relpath(sdf_path, self.package_dir)}")
+        print(f"  Launch file saved to: {os.path.relpath(launch_path, self.package_dir)}")
         print(f"  STL files generated in: {os.path.relpath(self.meshes_dir, self.package_dir)}/")
         print(f"    - tip_link.stl")
         print(f"    - bending_link.stl") 
