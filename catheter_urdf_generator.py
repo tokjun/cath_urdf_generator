@@ -234,428 +234,213 @@ ament_package()'''
         return cmake_path
     
     def generate_sdf(self, xacro_filename):
-        """Generate SDF file from xacro for Gazebo"""
+        """Generate SDF file using ElementTree for better structure and validation"""
         package_name = os.path.basename(self.package_dir)
         sdf_filename = xacro_filename.replace('.xacro', '.sdf')
         
-        # Create a simplified SDF structure based on the catheter parameters
-        # Base link is now at origin, chain extends upward
-        sdf_content = f'''<?xml version="1.0"?>
-<sdf version="1.7">
-  <model name="{package_name}">
-    <!-- Base link (root) -->
-    <link name="base_link">
-      <pose>0 0 {self.L3/2} 0 0 0</pose>
-      <inertial>
-        <mass>{self.base_mass}</mass>
-        <inertia>
-          <ixx>{(1/12) * self.base_mass * (3 * self.radius**2 + self.L3**2)}</ixx>
-          <iyy>{(1/12) * self.base_mass * (3 * self.radius**2 + self.L3**2)}</iyy>
-          <izz>{0.5 * self.base_mass * self.radius**2}</izz>
-          <ixy>0</ixy>
-          <ixz>0</ixz>
-          <iyz>0</iyz>
-        </inertia>
-      </inertial>
-      <visual name="base_visual">
-        <geometry>
-          <mesh>
-            <uri>file://{os.path.abspath(os.path.join(self.meshes_dir, "base_link.stl"))}</uri>
-          </mesh>
-        </geometry>
-        <material>
-          <ambient>0.8 0.8 0.8 1.0</ambient>
-          <diffuse>0.8 0.8 0.8 1.0</diffuse>
-        </material>
-      </visual>
-      <collision name="base_collision">
-        <geometry>
-          <mesh>
-            <uri>file://{os.path.abspath(os.path.join(self.meshes_dir, "base_link.stl"))}</uri>
-          </mesh>
-        </geometry>
-      </collision>
-    </link>
-'''
+        # Create SDF root element
+        sdf = ET.Element('sdf', version='1.7')
+        model = ET.SubElement(sdf, 'model', name=package_name)
+        
+        # Add base link
+        self._add_sdf_link(model, 'base_link', 
+                          pose=f'0 0 {self.L3/2} 0 0 0',
+                          mass=self.base_mass,
+                          length=self.L3,
+                          mesh_file=f'file://{os.path.abspath(os.path.join(self.meshes_dir, "base_link.stl"))}')
         
         # Add bending links
         current_z = self.L3
         for i in range(self.bending_links):
-            link_name = f"bending_link_{i+1}"
-            sdf_content += f'''
-    <!-- Bending link {i+1} -->
-    <link name="{link_name}">
-      <pose>0 0 {current_z + self.bending_link_length/2} 0 0 0</pose>
-      <inertial>
-        <mass>{self.bending_mass_per_link}</mass>
-        <inertia>
-          <ixx>{(1/12) * self.bending_mass_per_link * (3 * self.radius**2 + self.bending_link_length**2)}</ixx>
-          <iyy>{(1/12) * self.bending_mass_per_link * (3 * self.radius**2 + self.bending_link_length**2)}</iyy>
-          <izz>{0.5 * self.bending_mass_per_link * self.radius**2}</izz>
-          <ixy>0</ixy>
-          <ixz>0</ixz>
-          <iyz>0</iyz>
-        </inertia>
-      </inertial>
-      <visual name="{link_name}_visual">
-        <geometry>
-          <mesh>
-            <uri>model://{package_name}/meshes/bending_link.stl</uri>
-          </mesh>
-        </geometry>
-        <material>
-          <ambient>0.8 0.8 0.8 1.0</ambient>
-          <diffuse>0.8 0.8 0.8 1.0</diffuse>
-        </material>
-      </visual>
-      <collision name="{link_name}_collision">
-        <geometry>
-          <mesh>
-            <uri>model://{package_name}/meshes/bending_link.stl</uri>
-          </mesh>
-        </geometry>
-      </collision>
-    </link>
-'''
+            link_name = f'bending_link_{i+1}'
+            self._add_sdf_link(model, link_name,
+                              pose=f'0 0 {current_z + self.bending_link_length/2} 0 0 0',
+                              mass=self.bending_mass_per_link,
+                              length=self.bending_link_length,
+                              mesh_file=f'model://{package_name}/meshes/bending_link.stl')
             current_z += self.bending_link_length
         
         # Add tip link
-        sdf_content += f'''
-    <!-- Tip link -->
-    <link name="tip_link">
-      <pose>0 0 {current_z + self.L1/2} 0 0 0</pose>
-      <inertial>
-        <mass>{self.tip_mass}</mass>
-        <inertia>
-          <ixx>{(1/12) * self.tip_mass * (3 * self.radius**2 + self.L1**2)}</ixx>
-          <iyy>{(1/12) * self.tip_mass * (3 * self.radius**2 + self.L1**2)}</iyy>
-          <izz>{0.5 * self.tip_mass * self.radius**2}</izz>
-          <ixy>0</ixy>
-          <ixz>0</ixz>
-          <iyz>0</iyz>
-        </inertia>
-      </inertial>
-      <visual name="tip_visual">
-        <geometry>
-          <mesh>
-            <uri>model://{package_name}/meshes/tip_link.stl</uri>
-          </mesh>
-        </geometry>
-        <material>
-          <ambient>0.8 0.8 0.8 1.0</ambient>
-          <diffuse>0.8 0.8 0.8 1.0</diffuse>
-        </material>
-      </visual>
-      <collision name="tip_collision">
-        <geometry>
-          <mesh>
-            <uri>model://{package_name}/meshes/tip_link.stl</uri>
-          </mesh>
-        </geometry>
-      </collision>
-    </link>
-'''
+        self._add_sdf_link(model, 'tip_link',
+                          pose=f'0 0 {current_z + self.L1/2} 0 0 0',
+                          mass=self.tip_mass,
+                          length=self.L1,
+                          mesh_file=f'model://{package_name}/meshes/tip_link.stl')
         
         # Add fixed joint to connect base link to world
-        sdf_content += '''
-    <!-- Fixed joint: world to base -->
-    <joint name="world_to_base" type="fixed">
-      <parent>world</parent>
-      <child>base_link</child>
-      <pose>0 0 0 0 0 0</pose>
-    </joint>
-'''
+        self._add_fixed_joint(model, 'world_to_base', 'world', 'base_link')
         
-        # Add universal joints (base to tip order) - need intermediate links for 2-DOF
+        # Add universal joints
+        joint_names = self._add_universal_joints(model)
+        
+        # Add joint state publisher plugin
+        self._add_joint_state_publisher(model, joint_names)
+        
+        # Save SDF file with pretty formatting
+        self._save_sdf_file(sdf, sdf_filename)
+        
+        return os.path.join(self.sdf_dir, sdf_filename)
+    
+    def _add_sdf_link(self, parent, name, pose, mass, length, mesh_file):
+        """Add a link to SDF using ElementTree"""
+        link = ET.SubElement(parent, 'link', name=name)
+        
+        # Pose
+        ET.SubElement(link, 'pose').text = pose
+        
+        # Inertial properties
+        inertial = ET.SubElement(link, 'inertial')
+        ET.SubElement(inertial, 'mass').text = str(mass)
+        inertia = ET.SubElement(inertial, 'inertia')
+        
+        # Calculate inertia values
+        ixx_iyy = (1/12) * mass * (3 * self.radius**2 + length**2)
+        izz = 0.5 * mass * self.radius**2
+        
+        ET.SubElement(inertia, 'ixx').text = str(ixx_iyy)
+        ET.SubElement(inertia, 'iyy').text = str(ixx_iyy)
+        ET.SubElement(inertia, 'izz').text = str(izz)
+        ET.SubElement(inertia, 'ixy').text = '0'
+        ET.SubElement(inertia, 'ixz').text = '0'
+        ET.SubElement(inertia, 'iyz').text = '0'
+        
+        # Visual
+        visual = ET.SubElement(link, 'visual', name=f'{name}_visual')
+        geometry = ET.SubElement(visual, 'geometry')
+        mesh = ET.SubElement(geometry, 'mesh')
+        ET.SubElement(mesh, 'uri').text = mesh_file
+        material = ET.SubElement(visual, 'material')
+        ET.SubElement(material, 'ambient').text = '0.8 0.8 0.8 1.0'
+        ET.SubElement(material, 'diffuse').text = '0.8 0.8 0.8 1.0'
+        
+        # Collision
+        collision = ET.SubElement(link, 'collision', name=f'{name}_collision')
+        geometry = ET.SubElement(collision, 'geometry')
+        mesh = ET.SubElement(geometry, 'mesh')
+        ET.SubElement(mesh, 'uri').text = mesh_file
+    
+    def _add_intermediate_link(self, parent, name, pose):
+        """Add intermediate link for universal joints"""
+        link = ET.SubElement(parent, 'link', name=name)
+        ET.SubElement(link, 'pose').text = pose
+        
+        # Minimal inertial properties
+        inertial = ET.SubElement(link, 'inertial')
+        ET.SubElement(inertial, 'mass').text = '0.001'
+        inertia = ET.SubElement(inertial, 'inertia')
+        ET.SubElement(inertia, 'ixx').text = '1e-6'
+        ET.SubElement(inertia, 'iyy').text = '1e-6'
+        ET.SubElement(inertia, 'izz').text = '1e-6'
+        ET.SubElement(inertia, 'ixy').text = '0'
+        ET.SubElement(inertia, 'ixz').text = '0'
+        ET.SubElement(inertia, 'iyz').text = '0'
+    
+    def _add_revolute_joint(self, parent, name, parent_link, child_link, axis_xyz, pose='0 0 0 0 0 0'):
+        """Add revolute joint with spring dynamics"""
+        joint = ET.SubElement(parent, 'joint', name=name, type='revolute')
+        ET.SubElement(joint, 'parent').text = parent_link
+        ET.SubElement(joint, 'child').text = child_link
+        ET.SubElement(joint, 'pose').text = pose
+        
+        # Axis
+        axis = ET.SubElement(joint, 'axis')
+        ET.SubElement(axis, 'xyz').text = axis_xyz
+        
+        # Limits
+        limit = ET.SubElement(axis, 'limit')
+        ET.SubElement(limit, 'lower').text = str(-math.pi/2)
+        ET.SubElement(limit, 'upper').text = str(math.pi/2)
+        ET.SubElement(limit, 'effort').text = '100'
+        ET.SubElement(limit, 'velocity').text = '10'
+        
+        # Dynamics
+        dynamics = ET.SubElement(axis, 'dynamics')
+        ET.SubElement(dynamics, 'damping').text = '0.1'
+        ET.SubElement(dynamics, 'friction').text = '0.01'
+        ET.SubElement(dynamics, 'spring_stiffness').text = str(self.K)
+    
+    def _add_fixed_joint(self, parent, name, parent_link, child_link):
+        """Add fixed joint"""
+        joint = ET.SubElement(parent, 'joint', name=name, type='fixed')
+        ET.SubElement(joint, 'parent').text = parent_link
+        ET.SubElement(joint, 'child').text = child_link
+        ET.SubElement(joint, 'pose').text = '0 0 0 0 0 0'
+    
+    def _add_universal_joints(self, model):
+        """Add universal joints and return joint names for plugin"""
+        joint_names = []
+        
         if self.bending_links > 0:
-            # Base to first bending link - universal joint
-            sdf_content += f'''
-    <!-- Intermediate link for universal joint: base to bending_1 -->
-    <link name="base_to_bending_1_x_rotation">
-      <pose>0 0 {self.L3} 0 0 0</pose>
-      <inertial>
-        <mass>0.001</mass>
-        <inertia>
-          <ixx>1e-6</ixx>
-          <iyy>1e-6</iyy>
-          <izz>1e-6</izz>
-          <ixy>0</ixy>
-          <ixz>0</ixz>
-          <iyz>0</iyz>
-        </inertia>
-      </inertial>
-    </link>
-
-    <!-- Joint: base to bending_1 X-axis -->
-    <joint name="base_to_bending_1_x" type="revolute">
-      <parent>base_link</parent>
-      <child>base_to_bending_1_x_rotation</child>
-      <pose>0 0 0 0 0 0</pose>
-      <axis>
-        <xyz>1 0 0</xyz>
-        <limit>
-          <lower>{-math.pi/2}</lower>
-          <upper>{math.pi/2}</upper>
-          <effort>100</effort>
-          <velocity>10</velocity>
-        </limit>
-        <dynamics>
-          <damping>0.1</damping>
-          <friction>0.01</friction>
-          <spring_stiffness>{self.K}</spring_stiffness>
-        </dynamics>
-      </axis>
-    </joint>
-
-    <!-- Joint: base to bending_1 Y-axis -->
-    <joint name="base_to_bending_1_y" type="revolute">
-      <parent>base_to_bending_1_x_rotation</parent>
-      <child>bending_link_1</child>
-      <pose>0 0 0 0 0 0</pose>
-      <axis>
-        <xyz>0 1 0</xyz>
-        <limit>
-          <lower>{-math.pi/2}</lower>
-          <upper>{math.pi/2}</upper>
-          <effort>100</effort>
-          <velocity>10</velocity>
-        </limit>
-        <dynamics>
-          <damping>0.1</damping>
-          <friction>0.01</friction>
-          <spring_stiffness>{self.K}</spring_stiffness>
-        </dynamics>
-      </axis>
-    </joint>
-'''
+            # Base to first bending link
+            intermediate_name = 'base_to_bending_1_x_rotation'
+            self._add_intermediate_link(model, intermediate_name, f'0 0 {self.L3} 0 0 0')
+            
+            joint_x = 'base_to_bending_1_x'
+            joint_y = 'base_to_bending_1_y'
+            self._add_revolute_joint(model, joint_x, 'base_link', intermediate_name, '1 0 0')
+            self._add_revolute_joint(model, joint_y, intermediate_name, 'bending_link_1', '0 1 0')
+            joint_names.extend([joint_x, joint_y])
             
             # Bending link universal joints
             for i in range(1, self.bending_links):
                 current_z = self.L3 + i * self.bending_link_length
-                sdf_content += f'''
-    <!-- Intermediate link for universal joint: bending_{i} to bending_{i+1} -->
-    <link name="bending_{i}_to_{i+1}_x_rotation">
-      <pose>0 0 {current_z} 0 0 0</pose>
-      <inertial>
-        <mass>0.001</mass>
-        <inertia>
-          <ixx>1e-6</ixx>
-          <iyy>1e-6</iyy>
-          <izz>1e-6</izz>
-          <ixy>0</ixy>
-          <ixz>0</ixz>
-          <iyz>0</iyz>
-        </inertia>
-      </inertial>
-    </link>
-
-    <!-- Joint: bending_{i} to bending_{i+1} X-axis -->
-    <joint name="bending_{i}_to_{i+1}_x" type="revolute">
-      <parent>bending_link_{i}</parent>
-      <child>bending_{i}_to_{i+1}_x_rotation</child>
-      <pose>0 0 0 0 0 0</pose>
-      <axis>
-        <xyz>1 0 0</xyz>
-        <limit>
-          <lower>{-math.pi/2}</lower>
-          <upper>{math.pi/2}</upper>
-          <effort>100</effort>
-          <velocity>10</velocity>
-        </limit>
-        <dynamics>
-          <damping>0.1</damping>
-          <friction>0.01</friction>
-          <spring_stiffness>{self.K}</spring_stiffness>
-        </dynamics>
-      </axis>
-    </joint>
-
-    <!-- Joint: bending_{i} to bending_{i+1} Y-axis -->
-    <joint name="bending_{i}_to_{i+1}_y" type="revolute">
-      <parent>bending_{i}_to_{i+1}_x_rotation</parent>
-      <child>bending_link_{i+1}</child>
-      <pose>0 0 0 0 0 0</pose>
-      <axis>
-        <xyz>0 1 0</xyz>
-        <limit>
-          <lower>{-math.pi/2}</lower>
-          <upper>{math.pi/2}</upper>
-          <effort>100</effort>
-          <velocity>10</velocity>
-        </limit>
-        <dynamics>
-          <damping>0.1</damping>
-          <friction>0.01</friction>
-          <spring_stiffness>{self.K}</spring_stiffness>
-        </dynamics>
-      </axis>
-    </joint>
-'''
-            
-            # Last bending link to tip - universal joint
-            final_z = self.L3 + self.bending_links * self.bending_link_length
-            sdf_content += f'''
-    <!-- Intermediate link for universal joint: bending_{self.bending_links} to tip -->
-    <link name="bending_{self.bending_links}_to_tip_x_rotation">
-      <pose>0 0 {final_z} 0 0 0</pose>
-      <inertial>
-        <mass>0.001</mass>
-        <inertia>
-          <ixx>1e-6</ixx>
-          <iyy>1e-6</iyy>
-          <izz>1e-6</izz>
-          <ixy>0</ixy>
-          <ixz>0</ixz>
-          <iyz>0</iyz>
-        </inertia>
-      </inertial>
-    </link>
-
-    <!-- Joint: bending_{self.bending_links} to tip X-axis -->
-    <joint name="bending_{self.bending_links}_to_tip_x" type="revolute">
-      <parent>bending_link_{self.bending_links}</parent>
-      <child>bending_{self.bending_links}_to_tip_x_rotation</child>
-      <pose>0 0 0 0 0 0</pose>
-      <axis>
-        <xyz>1 0 0</xyz>
-        <limit>
-          <lower>{-math.pi/2}</lower>
-          <upper>{math.pi/2}</upper>
-          <effort>100</effort>
-          <velocity>10</velocity>
-        </limit>
-        <dynamics>
-          <damping>0.1</damping>
-          <friction>0.01</friction>
-          <spring_stiffness>{self.K}</spring_stiffness>
-        </dynamics>
-      </axis>
-    </joint>
-
-    <!-- Joint: bending_{self.bending_links} to tip Y-axis -->
-    <joint name="bending_{self.bending_links}_to_tip_y" type="revolute">
-      <parent>bending_{self.bending_links}_to_tip_x_rotation</parent>
-      <child>tip_link</child>
-      <pose>0 0 0 0 0 0</pose>
-      <axis>
-        <xyz>0 1 0</xyz>
-        <limit>
-          <lower>{-math.pi/2}</lower>
-          <upper>{math.pi/2}</upper>
-          <effort>100</effort>
-          <velocity>10</velocity>
-        </limit>
-        <dynamics>
-          <damping>0.1</damping>
-          <friction>0.01</friction>
-          <spring_stiffness>{self.K}</spring_stiffness>
-        </dynamics>
-      </axis>
-    </joint>
-'''
-        else:
-            # Direct base to tip universal joint
-            sdf_content += f'''
-    <!-- Intermediate link for universal joint: base to tip -->
-    <link name="base_to_tip_x_rotation">
-      <pose>0 0 {self.L3} 0 0 0</pose>
-      <inertial>
-        <mass>0.001</mass>
-        <inertia>
-          <ixx>1e-6</ixx>
-          <iyy>1e-6</iyy>
-          <izz>1e-6</izz>
-          <ixy>0</ixy>
-          <ixz>0</ixz>
-          <iyz>0</iyz>
-        </inertia>
-      </inertial>
-    </link>
-
-    <!-- Joint: base to tip X-axis -->
-    <joint name="base_to_tip_x" type="revolute">
-      <parent>base_link</parent>
-      <child>base_to_tip_x_rotation</child>
-      <pose>0 0 0 0 0 0</pose>
-      <axis>
-        <xyz>1 0 0</xyz>
-        <limit>
-          <lower>{-math.pi/2}</lower>
-          <upper>{math.pi/2}</upper>
-          <effort>100</effort>
-          <velocity>10</velocity>
-        </limit>
-        <dynamics>
-          <damping>0.1</damping>
-          <friction>0.01</friction>
-          <spring_stiffness>{self.K}</spring_stiffness>
-        </dynamics>
-      </axis>
-    </joint>
-
-    <!-- Joint: base to tip Y-axis -->
-    <joint name="base_to_tip_y" type="revolute">
-      <parent>base_to_tip_x_rotation</parent>
-      <child>tip_link</child>
-      <pose>0 0 0 0 0 0</pose>
-      <axis>
-        <xyz>0 1 0</xyz>
-        <limit>
-          <lower>{-math.pi/2}</lower>
-          <upper>{math.pi/2}</upper>
-          <effort>100</effort>
-          <velocity>10</velocity>
-        </limit>
-        <dynamics>
-          <damping>0.1</damping>
-          <friction>0.01</friction>
-          <spring_stiffness>{self.K}</spring_stiffness>
-        </dynamics>
-      </axis>
-    </joint>
-'''
-        
-        # Add joint state publisher plugin
-        sdf_content += '''
-    <!-- Joint State Publisher Plugin -->
-    <gazebo>
-      <plugin filename="gz-sim-joint-state-publisher-system" name="gz::sim::systems::JointStatePublisher"/>'''
-        
-        # Add all joint names to the plugin (both X and Y axes for universal joints)
-        if self.bending_links > 0:
-            # Base to first bending link
-            sdf_content += '''
-      <joint_name>base_to_bending_1_x</joint_name>
-      <joint_name>base_to_bending_1_y</joint_name>'''
-            
-            # Bending link joints
-            for i in range(1, self.bending_links):
-                sdf_content += f'''
-      <joint_name>bending_{i}_to_{i+1}_x</joint_name>
-      <joint_name>bending_{i}_to_{i+1}_y</joint_name>'''
+                intermediate_name = f'bending_{i}_to_{i+1}_x_rotation'
+                self._add_intermediate_link(model, intermediate_name, f'0 0 {current_z} 0 0 0')
+                
+                joint_x = f'bending_{i}_to_{i+1}_x'
+                joint_y = f'bending_{i}_to_{i+1}_y'
+                self._add_revolute_joint(model, joint_x, f'bending_link_{i}', intermediate_name, '1 0 0')
+                self._add_revolute_joint(model, joint_y, intermediate_name, f'bending_link_{i+1}', '0 1 0')
+                joint_names.extend([joint_x, joint_y])
             
             # Last bending link to tip
-            sdf_content += f'''
-      <joint_name>bending_{self.bending_links}_to_tip_x</joint_name>
-      <joint_name>bending_{self.bending_links}_to_tip_y</joint_name>'''
+            final_z = self.L3 + self.bending_links * self.bending_link_length
+            intermediate_name = f'bending_{self.bending_links}_to_tip_x_rotation'
+            self._add_intermediate_link(model, intermediate_name, f'0 0 {final_z} 0 0 0')
+            
+            joint_x = f'bending_{self.bending_links}_to_tip_x'
+            joint_y = f'bending_{self.bending_links}_to_tip_y'
+            self._add_revolute_joint(model, joint_x, f'bending_link_{self.bending_links}', intermediate_name, '1 0 0')
+            self._add_revolute_joint(model, joint_y, intermediate_name, 'tip_link', '0 1 0')
+            joint_names.extend([joint_x, joint_y])
         else:
-            # Direct base to tip joint
-            sdf_content += '''
-      <joint_name>base_to_tip_x</joint_name>
-      <joint_name>base_to_tip_y</joint_name>'''
+            # Direct base to tip universal joint
+            intermediate_name = 'base_to_tip_x_rotation'
+            self._add_intermediate_link(model, intermediate_name, f'0 0 {self.L3} 0 0 0')
+            
+            joint_x = 'base_to_tip_x'
+            joint_y = 'base_to_tip_y'
+            self._add_revolute_joint(model, joint_x, 'base_link', intermediate_name, '1 0 0')
+            self._add_revolute_joint(model, joint_y, intermediate_name, 'tip_link', '0 1 0')
+            joint_names.extend([joint_x, joint_y])
         
-        sdf_content += '''
-    </gazebo>'''
+        return joint_names
+    
+    def _add_joint_state_publisher(self, model, joint_names):
+        """Add joint state publisher plugin"""
+        gazebo = ET.SubElement(model, 'gazebo')
+        plugin = ET.SubElement(gazebo, 'plugin', 
+                              filename='gz-sim-joint-state-publisher-system',
+                              name='gz::sim::systems::JointStatePublisher')
         
-        # Close the model and sdf tags
-        sdf_content += '''
-  </model>
-</sdf>'''
+        for joint_name in joint_names:
+            ET.SubElement(plugin, 'joint_name').text = joint_name
+    
+    def _save_sdf_file(self, sdf_root, filename):
+        """Save SDF file with pretty formatting"""
+        # Pretty print XML
+        rough_string = ET.tostring(sdf_root, 'unicode')
+        reparsed = minidom.parseString(rough_string)
+        pretty_xml = reparsed.toprettyxml(indent='  ')
+        
+        # Remove empty lines
+        lines = [line for line in pretty_xml.split('\n') if line.strip()]
+        final_xml = '\n'.join(lines)
         
         # Save SDF file
-        sdf_path = os.path.join(self.sdf_dir, sdf_filename)
+        sdf_path = os.path.join(self.sdf_dir, filename)
         with open(sdf_path, 'w') as f:
-            f.write(sdf_content)
+            f.write(final_xml)
         
         return sdf_path
     
