@@ -260,7 +260,7 @@ ament_package()'''
       <visual name="base_visual">
         <geometry>
           <mesh>
-            <uri>model://{package_name}/meshes/base_link.stl</uri>
+            <uri>file://{os.path.abspath(os.path.join(self.meshes_dir, "base_link.stl"))}</uri>
           </mesh>
         </geometry>
         <material>
@@ -271,7 +271,7 @@ ament_package()'''
       <collision name="base_collision">
         <geometry>
           <mesh>
-            <uri>model://{package_name}/meshes/base_link.stl</uri>
+            <uri>file://{os.path.abspath(os.path.join(self.meshes_dir, "base_link.stl"))}</uri>
           </mesh>
         </geometry>
       </collision>
@@ -366,17 +366,54 @@ ament_package()'''
     </joint>
 '''
         
-        # Add joints (base to tip order)
+        # Add universal joints (base to tip order) - need intermediate links for 2-DOF
         if self.bending_links > 0:
-            # Base to first bending link
+            # Base to first bending link - universal joint
             sdf_content += f'''
-    <!-- Joint: base to bending_1 -->
+    <!-- Intermediate link for universal joint: base to bending_1 -->
+    <link name="base_to_bending_1_x_rotation">
+      <pose>0 0 {self.L3} 0 0 0</pose>
+      <inertial>
+        <mass>0.001</mass>
+        <inertia>
+          <ixx>1e-6</ixx>
+          <iyy>1e-6</iyy>
+          <izz>1e-6</izz>
+          <ixy>0</ixy>
+          <ixz>0</ixz>
+          <iyz>0</iyz>
+        </inertia>
+      </inertial>
+    </link>
+
+    <!-- Joint: base to bending_1 X-axis -->
     <joint name="base_to_bending_1_x" type="revolute">
       <parent>base_link</parent>
+      <child>base_to_bending_1_x_rotation</child>
+      <pose>0 0 0 0 0 0</pose>
+      <axis>
+        <xyz>1 0 0</xyz>
+        <limit>
+          <lower>{-math.pi/2}</lower>
+          <upper>{math.pi/2}</upper>
+          <effort>100</effort>
+          <velocity>10</velocity>
+        </limit>
+        <dynamics>
+          <damping>0.1</damping>
+          <friction>0.01</friction>
+          <spring_stiffness>{self.K}</spring_stiffness>
+        </dynamics>
+      </axis>
+    </joint>
+
+    <!-- Joint: base to bending_1 Y-axis -->
+    <joint name="base_to_bending_1_y" type="revolute">
+      <parent>base_to_bending_1_x_rotation</parent>
       <child>bending_link_1</child>
       <pose>0 0 0 0 0 0</pose>
       <axis>
-        <xyz>1 0 0</xyz>
+        <xyz>0 1 0</xyz>
         <limit>
           <lower>{-math.pi/2}</lower>
           <upper>{math.pi/2}</upper>
@@ -392,16 +429,54 @@ ament_package()'''
     </joint>
 '''
             
-            # Bending link joints
+            # Bending link universal joints
             for i in range(1, self.bending_links):
+                current_z = self.L3 + i * self.bending_link_length
                 sdf_content += f'''
-    <!-- Joint: bending_{i} to bending_{i+1} -->
+    <!-- Intermediate link for universal joint: bending_{i} to bending_{i+1} -->
+    <link name="bending_{i}_to_{i+1}_x_rotation">
+      <pose>0 0 {current_z} 0 0 0</pose>
+      <inertial>
+        <mass>0.001</mass>
+        <inertia>
+          <ixx>1e-6</ixx>
+          <iyy>1e-6</iyy>
+          <izz>1e-6</izz>
+          <ixy>0</ixy>
+          <ixz>0</ixz>
+          <iyz>0</iyz>
+        </inertia>
+      </inertial>
+    </link>
+
+    <!-- Joint: bending_{i} to bending_{i+1} X-axis -->
     <joint name="bending_{i}_to_{i+1}_x" type="revolute">
       <parent>bending_link_{i}</parent>
+      <child>bending_{i}_to_{i+1}_x_rotation</child>
+      <pose>0 0 0 0 0 0</pose>
+      <axis>
+        <xyz>1 0 0</xyz>
+        <limit>
+          <lower>{-math.pi/2}</lower>
+          <upper>{math.pi/2}</upper>
+          <effort>100</effort>
+          <velocity>10</velocity>
+        </limit>
+        <dynamics>
+          <damping>0.1</damping>
+          <friction>0.01</friction>
+          <spring_stiffness>{self.K}</spring_stiffness>
+        </dynamics>
+      </axis>
+    </joint>
+
+    <!-- Joint: bending_{i} to bending_{i+1} Y-axis -->
+    <joint name="bending_{i}_to_{i+1}_y" type="revolute">
+      <parent>bending_{i}_to_{i+1}_x_rotation</parent>
       <child>bending_link_{i+1}</child>
       <pose>0 0 0 0 0 0</pose>
       <axis>
-        <xyz>1 0 0</xyz>
+        <xyz>0 1 0</xyz>
         <limit>
           <lower>{-math.pi/2}</lower>
           <upper>{math.pi/2}</upper>
@@ -417,15 +492,53 @@ ament_package()'''
     </joint>
 '''
             
-            # Last bending link to tip
+            # Last bending link to tip - universal joint
+            final_z = self.L3 + self.bending_links * self.bending_link_length
             sdf_content += f'''
-    <!-- Joint: bending_{self.bending_links} to tip -->
+    <!-- Intermediate link for universal joint: bending_{self.bending_links} to tip -->
+    <link name="bending_{self.bending_links}_to_tip_x_rotation">
+      <pose>0 0 {final_z} 0 0 0</pose>
+      <inertial>
+        <mass>0.001</mass>
+        <inertia>
+          <ixx>1e-6</ixx>
+          <iyy>1e-6</iyy>
+          <izz>1e-6</izz>
+          <ixy>0</ixy>
+          <ixz>0</ixz>
+          <iyz>0</iyz>
+        </inertia>
+      </inertial>
+    </link>
+
+    <!-- Joint: bending_{self.bending_links} to tip X-axis -->
     <joint name="bending_{self.bending_links}_to_tip_x" type="revolute">
       <parent>bending_link_{self.bending_links}</parent>
-      <child>tip_link</child>
+      <child>bending_{self.bending_links}_to_tip_x_rotation</child>
       <pose>0 0 0 0 0 0</pose>
       <axis>
         <xyz>1 0 0</xyz>
+        <limit>
+          <lower>{-math.pi/2}</lower>
+          <upper>{math.pi/2}</upper>
+          <effort>100</effort>
+          <velocity>10</velocity>
+        </limit>
+        <dynamics>
+          <damping>0.1</damping>
+          <friction>0.01</friction>
+          <spring_stiffness>{self.K}</spring_stiffness>
+        </dynamics>
+      </axis>
+    </joint>
+
+    <!-- Joint: bending_{self.bending_links} to tip Y-axis -->
+    <joint name="bending_{self.bending_links}_to_tip_y" type="revolute">
+      <parent>bending_{self.bending_links}_to_tip_x_rotation</parent>
+      <child>tip_link</child>
+      <pose>0 0 0 0 0 0</pose>
+      <axis>
+        <xyz>0 1 0</xyz>
         <limit>
           <lower>{-math.pi/2}</lower>
           <upper>{math.pi/2}</upper>
@@ -441,12 +554,28 @@ ament_package()'''
     </joint>
 '''
         else:
-            # Direct base to tip joint
+            # Direct base to tip universal joint
             sdf_content += f'''
-    <!-- Joint: base to tip -->
+    <!-- Intermediate link for universal joint: base to tip -->
+    <link name="base_to_tip_x_rotation">
+      <pose>0 0 {self.L3} 0 0 0</pose>
+      <inertial>
+        <mass>0.001</mass>
+        <inertia>
+          <ixx>1e-6</ixx>
+          <iyy>1e-6</iyy>
+          <izz>1e-6</izz>
+          <ixy>0</ixy>
+          <ixz>0</ixz>
+          <iyz>0</iyz>
+        </inertia>
+      </inertial>
+    </link>
+
+    <!-- Joint: base to tip X-axis -->
     <joint name="base_to_tip_x" type="revolute">
       <parent>base_link</parent>
-      <child>tip_link</child>
+      <child>base_to_tip_x_rotation</child>
       <pose>0 0 0 0 0 0</pose>
       <axis>
         <xyz>1 0 0</xyz>
@@ -463,10 +592,64 @@ ament_package()'''
         </dynamics>
       </axis>
     </joint>
+
+    <!-- Joint: base to tip Y-axis -->
+    <joint name="base_to_tip_y" type="revolute">
+      <parent>base_to_tip_x_rotation</parent>
+      <child>tip_link</child>
+      <pose>0 0 0 0 0 0</pose>
+      <axis>
+        <xyz>0 1 0</xyz>
+        <limit>
+          <lower>{-math.pi/2}</lower>
+          <upper>{math.pi/2}</upper>
+          <effort>100</effort>
+          <velocity>10</velocity>
+        </limit>
+        <dynamics>
+          <damping>0.1</damping>
+          <friction>0.01</friction>
+          <spring_stiffness>{self.K}</spring_stiffness>
+        </dynamics>
+      </axis>
+    </joint>
 '''
         
+        # Add joint state publisher plugin
+        sdf_content += '''
+    <!-- Joint State Publisher Plugin -->
+    <gazebo>
+      <plugin filename="gz-sim-joint-state-publisher-system" name="gz::sim::systems::JointStatePublisher"/>'''
+        
+        # Add all joint names to the plugin (both X and Y axes for universal joints)
+        if self.bending_links > 0:
+            # Base to first bending link
+            sdf_content += '''
+      <joint_name>base_to_bending_1_x</joint_name>
+      <joint_name>base_to_bending_1_y</joint_name>'''
+            
+            # Bending link joints
+            for i in range(1, self.bending_links):
+                sdf_content += f'''
+      <joint_name>bending_{i}_to_{i+1}_x</joint_name>
+      <joint_name>bending_{i}_to_{i+1}_y</joint_name>'''
+            
+            # Last bending link to tip
+            sdf_content += f'''
+      <joint_name>bending_{self.bending_links}_to_tip_x</joint_name>
+      <joint_name>bending_{self.bending_links}_to_tip_y</joint_name>'''
+        else:
+            # Direct base to tip joint
+            sdf_content += '''
+      <joint_name>base_to_tip_x</joint_name>
+      <joint_name>base_to_tip_y</joint_name>'''
+        
+        sdf_content += '''
+    </gazebo>'''
+        
         # Close the model and sdf tags
-        sdf_content += '''  </model>
+        sdf_content += '''
+  </model>
 </sdf>'''
         
         # Save SDF file
