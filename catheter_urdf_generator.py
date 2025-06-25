@@ -22,10 +22,12 @@ import xml.etree.ElementTree as ET
 import xml.dom.minidom as minidom
 import math
 import argparse
+import numpy as np
+import os
 
 
 class CatheterXacroGenerator:
-    def __init__(self, N, D, L1, L2, L3, K, M):
+    def __init__(self, N, D, L1, L2, L3, K, M, package_dir="catheter_package"):
         self.N = N
         self.D = D
         self.L1 = L1
@@ -33,9 +35,13 @@ class CatheterXacroGenerator:
         self.L3 = L3
         self.K = K
         self.M = M
+        self.package_dir = package_dir
+        self.meshes_dir = os.path.join(package_dir, "meshes")
+        self.urdf_dir = os.path.join(package_dir, "urdf")
         
         self.validate_parameters()
         self.calculate_derived_values()
+        self.create_package_structure()
     
     def validate_parameters(self):
         """Validate input parameters"""
@@ -54,6 +60,71 @@ class CatheterXacroGenerator:
         self.tip_mass = self.M * (self.L1 / (self.L1 + self.L2 + self.L3))
         self.base_mass = self.M * (self.L3 / (self.L1 + self.L2 + self.L3))
         self.bending_mass_per_link = self.M * (self.L2 / (self.L1 + self.L2 + self.L3)) / self.bending_links if self.bending_links > 0 else 0
+    
+    def create_package_structure(self):
+        """Create package directory structure"""
+        if not os.path.exists(self.package_dir):
+            os.makedirs(self.package_dir)
+        if not os.path.exists(self.meshes_dir):
+            os.makedirs(self.meshes_dir)
+        if not os.path.exists(self.urdf_dir):
+            os.makedirs(self.urdf_dir)
+    
+    def generate_cylinder_stl(self, radius, length, filename, resolution=20):
+        """Generate STL file for a cylinder"""
+        theta = np.linspace(0, 2*np.pi, resolution)
+        
+        # Generate vertices for top and bottom circles
+        top_center = [0, 0, length/2]
+        bottom_center = [0, 0, -length/2]
+        
+        top_circle = [[radius * np.cos(t), radius * np.sin(t), length/2] for t in theta]
+        bottom_circle = [[radius * np.cos(t), radius * np.sin(t), -length/2] for t in theta]
+        
+        vertices = [top_center, bottom_center] + top_circle + bottom_circle
+        
+        # Generate triangular faces
+        faces = []
+        n = len(theta)
+        
+        # Top cap triangles (fan from center)
+        for i in range(n):
+            faces.append([0, 2 + i, 2 + (i + 1) % n])
+        
+        # Bottom cap triangles (fan from center)
+        for i in range(n):
+            faces.append([1, 2 + n + (i + 1) % n, 2 + n + i])
+        
+        # Side triangles
+        for i in range(n):
+            next_i = (i + 1) % n
+            # Two triangles per side face
+            faces.append([2 + i, 2 + n + i, 2 + next_i])
+            faces.append([2 + next_i, 2 + n + i, 2 + n + next_i])
+        
+        # Write STL file
+        stl_path = os.path.join(self.meshes_dir, filename)
+        with open(stl_path, 'w') as f:
+            f.write("solid cylinder\n")
+            
+            for face in faces:
+                # Calculate normal vector
+                v1 = np.array(vertices[face[1]]) - np.array(vertices[face[0]])
+                v2 = np.array(vertices[face[2]]) - np.array(vertices[face[0]])
+                normal = np.cross(v1, v2)
+                normal = normal / np.linalg.norm(normal) if np.linalg.norm(normal) > 0 else [0, 0, 1]
+                
+                f.write(f"  facet normal {normal[0]:.6f} {normal[1]:.6f} {normal[2]:.6f}\n")
+                f.write("    outer loop\n")
+                for vertex_idx in face:
+                    vertex = vertices[vertex_idx]
+                    f.write(f"      vertex {vertex[0]:.6f} {vertex[1]:.6f} {vertex[2]:.6f}\n")
+                f.write("    endloop\n")
+                f.write("  endfacet\n")
+            
+            f.write("endsolid cylinder\n")
+        
+        return stl_path
     
     def create_link_inertia(self, mass, length, radius):
         """Calculate inertia tensor for cylindrical link"""
@@ -114,6 +185,11 @@ class CatheterXacroGenerator:
         robot = ET.Element('robot', name="flexible_catheter")
         robot.set('xmlns:xacro', 'http://www.ros.org/wiki/xacro')
         
+        # Generate STL files for different link types
+        tip_stl = self.generate_cylinder_stl(self.radius, self.L1, "tip_link.stl")
+        base_stl = self.generate_cylinder_stl(self.radius, self.L3, "base_link.stl")
+        bending_stl = self.generate_cylinder_stl(self.radius, self.bending_link_length, "bending_link.stl")
+        
         # Add xacro properties
         self.add_xacro_properties(robot)
         
@@ -123,19 +199,23 @@ class CatheterXacroGenerator:
         
         # Use macros to create links
         # Link frame origin at joint, geometry extends from origin
+        package_name = os.path.basename(self.package_dir)
         ET.SubElement(robot, 'xacro:catheter_link',
                      name='tip_link', mass='${tip_mass}', length='${tip_length}',
-                     radius='${catheter_radius}', xyz_origin=f'0 0 {self.L1/2}')
+                     radius='${catheter_radius}', xyz_origin=f'0 0 {self.L1/2}',
+                     mesh_file=f'package://{package_name}/meshes/tip_link.stl')
         
         for i in range(self.bending_links):
             ET.SubElement(robot, 'xacro:catheter_link',
                          name=f'bending_link_{i+1}', mass='${bending_mass_per_link}',
                          length='${bending_link_length}', radius='${catheter_radius}',
-                         xyz_origin=f'0 0 {self.bending_link_length/2}')
+                         xyz_origin=f'0 0 {self.bending_link_length/2}',
+                         mesh_file=f'package://{package_name}/meshes/bending_link.stl')
         
         ET.SubElement(robot, 'xacro:catheter_link',
                      name='base_link', mass='${base_mass}', length='${base_length}',
-                     radius='${catheter_radius}', xyz_origin=f'0 0 {self.L3/2}')
+                     radius='${catheter_radius}', xyz_origin=f'0 0 {self.L3/2}',
+                     mesh_file=f'package://{package_name}/meshes/base_link.stl')
         
         # Use macros to create joints
         # Position joints at the end of each parent link
@@ -184,7 +264,7 @@ class CatheterXacroGenerator:
     def add_catheter_link_macro(self, root):
         """Add xacro macro for catheter links"""
         macro = ET.SubElement(root, 'xacro:macro', name='catheter_link')
-        macro.set('params', 'name mass length radius xyz_origin')
+        macro.set('params', 'name mass length radius xyz_origin mesh_file')
         
         link = ET.SubElement(macro, 'link', name='${name}')
         
@@ -192,14 +272,14 @@ class CatheterXacroGenerator:
         visual = ET.SubElement(link, 'visual')
         ET.SubElement(visual, 'origin', xyz='${xyz_origin}', rpy='0 0 0')
         visual_geometry = ET.SubElement(visual, 'geometry')
-        ET.SubElement(visual_geometry, 'cylinder', radius='${radius}', length='${length}')
+        ET.SubElement(visual_geometry, 'mesh', filename='${mesh_file}')
         ET.SubElement(visual, 'material', name='catheter_material')
         
         # Collision
         collision = ET.SubElement(link, 'collision')
         ET.SubElement(collision, 'origin', xyz='${xyz_origin}', rpy='0 0 0')
         collision_geometry = ET.SubElement(collision, 'geometry')
-        ET.SubElement(collision_geometry, 'cylinder', radius='${radius}', length='${length}')
+        ET.SubElement(collision_geometry, 'mesh', filename='${mesh_file}')
         
         # Inertial
         inertial = ET.SubElement(link, 'inertial')
@@ -267,9 +347,14 @@ class CatheterXacroGenerator:
         ref_pos_y = ET.SubElement(plugin_y, 'reference_position')
         ref_pos_y.text = '0.0'
     
-    def save_xacro(self, filename="flexible_catheter.xacro"):
-        """Save the Xacro to file"""
+    def save_xacro(self, filename=None):
+        """Save the Xacro to file in urdf directory"""
         robot = self.generate_xacro()
+        
+        # Use package name as default filename if none provided
+        if filename is None:
+            package_name = os.path.basename(self.package_dir)
+            filename = f"{package_name}.xacro"
         
         # Pretty print XML
         rough_string = ET.tostring(robot, 'unicode')
@@ -280,10 +365,17 @@ class CatheterXacroGenerator:
         lines = [line for line in pretty_xml.split('\n') if line.strip()]
         final_xml = '\n'.join(lines)
         
-        with open(filename, 'w') as f:
+        # Save xacro file in urdf directory
+        xacro_path = os.path.join(self.urdf_dir, filename)
+        with open(xacro_path, 'w') as f:
             f.write(final_xml)
         
-        print(f"Xacro saved to {filename}")
+        print(f"Package created: {self.package_dir}/")
+        print(f"  Xacro saved to: {xacro_path}")
+        print(f"  STL files generated in: {self.meshes_dir}/")
+        print(f"    - tip_link.stl")
+        print(f"    - bending_link.stl") 
+        print(f"    - base_link.stl")
 
 
 def main():
@@ -295,16 +387,18 @@ def main():
     parser.add_argument("--L3", type=float, default=0.05, help="Base link length (m)")
     parser.add_argument("--K", type=float, default=0.1, help="Spring constant (Nm/rad)")
     parser.add_argument("--M", type=float, default=0.01, help="Total mass (kg)")
-    parser.add_argument("--output", type=str, default="flexible_catheter.xacro", 
-                       help="Output filename")
+    parser.add_argument("--output", type=str, default="catheter_package", 
+                       help="Package directory name")
+    parser.add_argument("--xacro-name", type=str, default=None, 
+                       help="Xacro filename to save in urdf/ directory (default: package_name.xacro)")
     
     args = parser.parse_args()
     
     try:
-        generator = CatheterXacroGenerator(args.N, args.D, args.L1, args.L2, args.L3, args.K, args.M)
-        generator.save_xacro(args.output)
+        generator = CatheterXacroGenerator(args.N, args.D, args.L1, args.L2, args.L3, args.K, args.M, args.output)
+        generator.save_xacro(args.xacro_name)
         
-        print(f"Generated Xacro with parameters:")
+        print(f"Generated catheter with parameters:")
         print(f"  Links: {args.N}")
         print(f"  Diameter: {args.D} m")
         print(f"  Tip length: {args.L1} m")

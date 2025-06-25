@@ -7,6 +7,7 @@ A Python script to generate Xacro data for flexible catheters modeled as serial 
 
 ### Basic Usage
 
+
 ```bash
 python3 catheter_urdf_generator.py [OPTIONS]
 ```
@@ -22,9 +23,10 @@ python3 catheter_urdf_generator.py [OPTIONS]
 - `--M`: Total mass in kg (default: 0.01)
 - `--output`: Output filename (default: flexible_catheter.xacro)
 
-### Examples
+### Tutorial
 
-Generate a catheter with default parameters:
+On a terminal, run the catheter_urdf_generator.py to generate a catheter with default parameters:
+
 ```bash
 python3 catheter_urdf_generator.py
 ```
@@ -33,6 +35,16 @@ Generate a custom catheter:
 ```bash
 python3 catheter_urdf_generator.py --N 7 --D 0.003 --L1 0.015 --L2 0.08 --L3 0.04 --K 0.2 --M 0.008 --output my_catheter.xacro
 ```
+
+```bash
+$ cd ~/ros2_ws
+$ source /opt/ros/humble/setup.bash
+$ source install/setup.bash
+$ ros2 run robot_state_publisher robot_state_publisher --ros-args -p robot_description:="$( xacro <working directory>/smart_template_description/urdf/smart_template.xacro )" 
+```
+
+
+
 
 ### Output
 
