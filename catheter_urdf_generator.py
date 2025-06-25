@@ -231,12 +231,53 @@ ament_package()'''
         sdf_filename = xacro_filename.replace('.xacro', '.sdf')
         
         # Create a simplified SDF structure based on the catheter parameters
+        # Base link is now at origin, chain extends upward
         sdf_content = f'''<?xml version="1.0"?>
 <sdf version="1.7">
   <model name="{package_name}">
-    <!-- Tip link -->
-    <link name="tip_link">
-      <pose>0 0 {self.L1/2} 0 0 0</pose>
+    <!-- Base link (root) -->
+    <link name="base_link">
+      <pose>0 0 {self.L3/2} 0 0 0</pose>
+      <inertial>
+        <mass>{self.base_mass}</mass>
+        <inertia>
+          <ixx>{(1/12) * self.base_mass * (3 * self.radius**2 + self.L3**2)}</ixx>
+          <iyy>{(1/12) * self.base_mass * (3 * self.radius**2 + self.L3**2)}</iyy>
+          <izz>{0.5 * self.base_mass * self.radius**2}</izz>
+          <ixy>0</ixy>
+          <ixz>0</ixz>
+          <iyz>0</iyz>
+        </inertia>
+      </inertial>
+      <visual name="base_visual">
+        <geometry>
+          <mesh>
+            <uri>model://{package_name}/meshes/base_link.stl</uri>
+          </mesh>
+        </geometry>
+        <material>
+          <ambient>0.8 0.8 0.8 1.0</ambient>
+          <diffuse>0.8 0.8 0.8 1.0</diffuse>
+        </material>
+      </visual>
+      <collision name="base_collision">
+        <geometry>
+          <mesh>
+            <uri>model://{package_name}/meshes/base_link.stl</uri>
+          </mesh>
+        </geometry>
+      </collision>
+    </link>
+'''
+        
+        # Add bending links
+        current_z = self.L3
+        for i in range(self.bending_links):
+            link_name = f"bending_link_{i+1}"
+            sdf_content += f'''
+    <!-- Bending link {i+1} -->
+    <link name="{link_name}">
+      <pose>0 0 {current_z + self.bending_link_length/2} 0 0 0</pose>
       <inertial>
         <mass>{self.tip_mass}</mass>
         <inertia>
@@ -310,26 +351,26 @@ ament_package()'''
 '''
             current_z += self.bending_link_length
         
-        # Add base link
+        # Add tip link
         sdf_content += f'''
-    <!-- Base link -->
-    <link name="base_link">
-      <pose>0 0 {current_z + self.L3/2} 0 0 0</pose>
+    <!-- Tip link -->
+    <link name="tip_link">
+      <pose>0 0 {current_z + self.L1/2} 0 0 0</pose>
       <inertial>
-        <mass>{self.base_mass}</mass>
+        <mass>{self.tip_mass}</mass>
         <inertia>
-          <ixx>{(1/12) * self.base_mass * (3 * self.radius**2 + self.L3**2)}</ixx>
-          <iyy>{(1/12) * self.base_mass * (3 * self.radius**2 + self.L3**2)}</iyy>
-          <izz>{0.5 * self.base_mass * self.radius**2}</izz>
+          <ixx>{(1/12) * self.tip_mass * (3 * self.radius**2 + self.L1**2)}</ixx>
+          <iyy>{(1/12) * self.tip_mass * (3 * self.radius**2 + self.L1**2)}</iyy>
+          <izz>{0.5 * self.tip_mass * self.radius**2}</izz>
           <ixy>0</ixy>
           <ixz>0</ixz>
           <iyz>0</iyz>
         </inertia>
       </inertial>
-      <visual name="base_visual">
+      <visual name="tip_visual">
         <geometry>
           <mesh>
-            <uri>model://{package_name}/meshes/base_link.stl</uri>
+            <uri>model://{package_name}/meshes/tip_link.stl</uri>
           </mesh>
         </geometry>
         <material>
@@ -337,23 +378,23 @@ ament_package()'''
           <diffuse>0.8 0.8 0.8 1.0</diffuse>
         </material>
       </visual>
-      <collision name="base_collision">
+      <collision name="tip_collision">
         <geometry>
           <mesh>
-            <uri>model://{package_name}/meshes/base_link.stl</uri>
+            <uri>model://{package_name}/meshes/tip_link.stl</uri>
           </mesh>
         </geometry>
       </collision>
     </link>
 '''
         
-        # Add joints
+        # Add joints (base to tip order)
         if self.bending_links > 0:
-            # Tip to first bending link
+            # Base to first bending link
             sdf_content += f'''
-    <!-- Joint: tip to bending_1 -->
-    <joint name="tip_to_bending_1_x" type="revolute">
-      <parent>tip_link</parent>
+    <!-- Joint: base to bending_1 -->
+    <joint name="base_to_bending_1_x" type="revolute">
+      <parent>base_link</parent>
       <child>bending_link_1</child>
       <pose>0 0 0 0 0 0</pose>
       <axis>
@@ -398,12 +439,12 @@ ament_package()'''
     </joint>
 '''
             
-            # Last bending link to base
+            # Last bending link to tip
             sdf_content += f'''
-    <!-- Joint: bending_{self.bending_links} to base -->
-    <joint name="bending_{self.bending_links}_to_base_x" type="revolute">
+    <!-- Joint: bending_{self.bending_links} to tip -->
+    <joint name="bending_{self.bending_links}_to_tip_x" type="revolute">
       <parent>bending_link_{self.bending_links}</parent>
-      <child>base_link</child>
+      <child>tip_link</child>
       <pose>0 0 0 0 0 0</pose>
       <axis>
         <xyz>1 0 0</xyz>
@@ -422,12 +463,12 @@ ament_package()'''
     </joint>
 '''
         else:
-            # Direct tip to base joint
+            # Direct base to tip joint
             sdf_content += f'''
-    <!-- Joint: tip to base -->
-    <joint name="tip_to_base_x" type="revolute">
-      <parent>tip_link</parent>
-      <child>base_link</child>
+    <!-- Joint: base to tip -->
+    <joint name="base_to_tip_x" type="revolute">
+      <parent>base_link</parent>
+      <child>tip_link</child>
       <pose>0 0 0 0 0 0</pose>
       <axis>
         <xyz>1 0 0</xyz>
@@ -658,11 +699,12 @@ def generate_launch_description():
         
         # Use macros to create links
         # Link frame origin at joint, geometry extends from origin
+        # Base link is now the root/parent
         package_name = os.path.basename(self.package_dir)
         ET.SubElement(robot, 'xacro:catheter_link',
-                     name='tip_link', mass='${tip_mass}', length='${tip_length}',
-                     radius='${catheter_radius}', xyz_origin=f'0 0 {self.L1/2}',
-                     mesh_file=f'package://{package_name}/meshes/tip_link.stl')
+                     name='base_link', mass='${base_mass}', length='${base_length}',
+                     radius='${catheter_radius}', xyz_origin=f'0 0 {self.L3/2}',
+                     mesh_file=f'package://{package_name}/meshes/base_link.stl')
         
         for i in range(self.bending_links):
             ET.SubElement(robot, 'xacro:catheter_link',
@@ -672,31 +714,35 @@ def generate_launch_description():
                          mesh_file=f'package://{package_name}/meshes/bending_link.stl')
         
         ET.SubElement(robot, 'xacro:catheter_link',
-                     name='base_link', mass='${base_mass}', length='${base_length}',
-                     radius='${catheter_radius}', xyz_origin=f'0 0 {self.L3/2}',
-                     mesh_file=f'package://{package_name}/meshes/base_link.stl')
+                     name='tip_link', mass='${tip_mass}', length='${tip_length}',
+                     radius='${catheter_radius}', xyz_origin=f'0 0 {self.L1/2}',
+                     mesh_file=f'package://{package_name}/meshes/tip_link.stl')
         
         # Use macros to create joints
-        # Position joints at the end of each parent link
+        # Position joints at the end of each parent link (now base to tip)
         if self.bending_links > 0:
+            # Base to first bending link
             ET.SubElement(robot, 'xacro:universal_joint',
-                         name='tip_to_bending_1', parent='tip_link', child='bending_link_1',
-                         xyz_origin=f'0 0 {self.L1}', spring_k='${spring_constant}')
+                         name='base_to_bending_1', parent='base_link', child='bending_link_1',
+                         xyz_origin=f'0 0 {self.L3}', spring_k='${spring_constant}')
             
+            # Intermediate bending link joints
             for i in range(1, self.bending_links):
                 ET.SubElement(robot, 'xacro:universal_joint',
                              name=f'bending_{i}_to_{i+1}', parent=f'bending_link_{i}',
                              child=f'bending_link_{i+1}', xyz_origin=f'0 0 {self.bending_link_length}',
                              spring_k='${spring_constant}')
             
+            # Last bending link to tip
             ET.SubElement(robot, 'xacro:universal_joint',
-                         name=f'bending_{self.bending_links}_to_base',
-                         parent=f'bending_link_{self.bending_links}', child='base_link',
+                         name=f'bending_{self.bending_links}_to_tip',
+                         parent=f'bending_link_{self.bending_links}', child='tip_link',
                          xyz_origin=f'0 0 {self.bending_link_length}', spring_k='${spring_constant}')
         else:
+            # Direct base to tip if no bending links
             ET.SubElement(robot, 'xacro:universal_joint',
-                         name='tip_to_base', parent='tip_link', child='base_link',
-                         xyz_origin=f'0 0 {self.L1}', spring_k='${spring_constant}')
+                         name='base_to_tip', parent='base_link', child='tip_link',
+                         xyz_origin=f'0 0 {self.L3}', spring_k='${spring_constant}')
         
         return robot
     
