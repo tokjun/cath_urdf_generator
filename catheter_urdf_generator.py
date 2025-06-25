@@ -683,7 +683,7 @@ import os
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import IncludeLaunchDescription, TimerAction
+from launch.actions import IncludeLaunchDescription
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch_ros.actions import Node
 import xacro
@@ -757,12 +757,6 @@ def generate_launch_description():
         output='screen'
     )
 
-    # Delay RViz startup to ensure other nodes are ready
-    delayed_rviz = TimerAction(
-        period=3.0,
-        actions=[rviz]
-    )
-
     return LaunchDescription(
         [
             # Launch Gazebo
@@ -775,8 +769,8 @@ def generate_launch_description():
             robot_state_publisher,
             # Uncomment the next line to enable joint state publisher GUI
             # joint_state_publisher_gui,
-            # Launch RViz with delay
-            delayed_rviz,
+            # Launch RViz
+            rviz,
         ]
     )
 '''
@@ -945,7 +939,7 @@ def generate_launch_description():
                      radius='${catheter_radius}', xyz_origin=f'0 0 {self.L1/2}',
                      mesh_file=f'package://{package_name}/meshes/tip_link.stl')
         
-        # Use macros to create joints
+        # Use macros to create joints with same naming as SDF
         # Position joints at the end of each parent link (now base to tip)
         if self.bending_links > 0:
             # Base to first bending link
@@ -1027,11 +1021,18 @@ def generate_launch_description():
                      ixy='0', ixz='0', iyz='0')
     
     def add_universal_joint_macro(self, root):
-        """Add xacro macro for universal joints with springs"""
+        """Add xacro macro for universal joints with springs - matching SDF joint names"""
         macro = ET.SubElement(root, 'xacro:macro', name='universal_joint')
         macro.set('params', 'name parent child xyz_origin spring_k')
         
-        # X-axis joint
+        # Intermediate link for universal joint
+        intermediate_link = ET.SubElement(macro, 'link', name='${name}_x_rotation')
+        inertial = ET.SubElement(intermediate_link, 'inertial')
+        ET.SubElement(inertial, 'mass', value='0.001')
+        ET.SubElement(inertial, 'inertia', ixx='1e-6', iyy='1e-6', izz='1e-6',
+                     ixy='0', ixz='0', iyz='0')
+        
+        # X-axis joint (parent -> intermediate)
         joint_x = ET.SubElement(macro, 'joint', name='${name}_x', type='revolute')
         ET.SubElement(joint_x, 'parent', link='${parent}')
         ET.SubElement(joint_x, 'child', link='${name}_x_rotation')
@@ -1041,14 +1042,7 @@ def generate_launch_description():
                      effort='100', velocity='10')
         ET.SubElement(joint_x, 'dynamics', damping='0.1', friction='0.01')
         
-        # Intermediate link for universal joint
-        intermediate_link = ET.SubElement(macro, 'link', name='${name}_x_rotation')
-        inertial = ET.SubElement(intermediate_link, 'inertial')
-        ET.SubElement(inertial, 'mass', value='0.001')
-        ET.SubElement(inertial, 'inertia', ixx='1e-6', iyy='1e-6', izz='1e-6',
-                     ixy='0', ixz='0', iyz='0')
-        
-        # Y-axis joint
+        # Y-axis joint (intermediate -> child)
         joint_y = ET.SubElement(macro, 'joint', name='${name}_y', type='revolute')
         ET.SubElement(joint_y, 'parent', link='${name}_x_rotation')
         ET.SubElement(joint_y, 'child', link='${child}')
@@ -1058,7 +1052,7 @@ def generate_launch_description():
                      effort='100', velocity='10')
         ET.SubElement(joint_y, 'dynamics', damping='0.1', friction='0.01')
         
-        # Spring plugins
+        # Spring plugins for Gazebo
         gazebo_x = ET.SubElement(macro, 'gazebo')
         plugin_x = ET.SubElement(gazebo_x, 'plugin', name='${name}_x_spring',
                                 filename='libgazebo_ros_joint_spring.so')
