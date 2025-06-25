@@ -40,6 +40,7 @@ class CatheterXacroGenerator:
         self.urdf_dir = os.path.join(package_dir, "urdf")
         self.sdf_dir = os.path.join(package_dir, "sdf")
         self.launch_dir = os.path.join(package_dir, "launch")
+        self.worlds_dir = os.path.join(package_dir, "worlds")
         
         self.validate_parameters()
         self.calculate_derived_values()
@@ -75,6 +76,8 @@ class CatheterXacroGenerator:
             os.makedirs(self.sdf_dir)
         if not os.path.exists(self.launch_dir):
             os.makedirs(self.launch_dir)
+        if not os.path.exists(self.worlds_dir):
+            os.makedirs(self.worlds_dir)
     
     def generate_cylinder_stl(self, radius, length, filename, resolution=20):
         """Generate STL file for a cylinder"""
@@ -198,6 +201,11 @@ install(DIRECTORY sdf/
   DESTINATION share/${{PROJECT_NAME}}/sdf/
 )
 
+# Install world files
+install(DIRECTORY worlds/
+  DESTINATION share/${{PROJECT_NAME}}/worlds/
+)
+
 # Install launch files (if any)
 install(DIRECTORY launch/
   DESTINATION share/${{PROJECT_NAME}}/launch/
@@ -279,46 +287,6 @@ ament_package()'''
     <link name="{link_name}">
       <pose>0 0 {current_z + self.bending_link_length/2} 0 0 0</pose>
       <inertial>
-        <mass>{self.tip_mass}</mass>
-        <inertia>
-          <ixx>{(1/12) * self.tip_mass * (3 * self.radius**2 + self.L1**2)}</ixx>
-          <iyy>{(1/12) * self.tip_mass * (3 * self.radius**2 + self.L1**2)}</iyy>
-          <izz>{0.5 * self.tip_mass * self.radius**2}</izz>
-          <ixy>0</ixy>
-          <ixz>0</ixz>
-          <iyz>0</iyz>
-        </inertia>
-      </inertial>
-      <visual name="tip_visual">
-        <geometry>
-          <mesh>
-            <uri>model://{package_name}/meshes/tip_link.stl</uri>
-          </mesh>
-        </geometry>
-        <material>
-          <ambient>0.8 0.8 0.8 1.0</ambient>
-          <diffuse>0.8 0.8 0.8 1.0</diffuse>
-        </material>
-      </visual>
-      <collision name="tip_collision">
-        <geometry>
-          <mesh>
-            <uri>model://{package_name}/meshes/tip_link.stl</uri>
-          </mesh>
-        </geometry>
-      </collision>
-    </link>
-'''
-        
-        # Add bending links
-        current_z = self.L1
-        for i in range(self.bending_links):
-            link_name = f"bending_link_{i+1}"
-            sdf_content += f'''
-    <!-- Bending link {i+1} -->
-    <link name="{link_name}">
-      <pose>0 0 {current_z + self.bending_link_length/2} 0 0 0</pose>
-      <inertial>
         <mass>{self.bending_mass_per_link}</mass>
         <inertia>
           <ixx>{(1/12) * self.bending_mass_per_link * (3 * self.radius**2 + self.bending_link_length**2)}</ixx>
@@ -386,6 +354,16 @@ ament_package()'''
         </geometry>
       </collision>
     </link>
+'''
+        
+        # Add fixed joint to connect base link to world
+        sdf_content += '''
+    <!-- Fixed joint: world to base -->
+    <joint name="world_to_base" type="fixed">
+      <parent>world</parent>
+      <child>base_link</child>
+      <pose>0 0 0 0 0 0</pose>
+    </joint>
 '''
         
         # Add joints (base to tip order)
@@ -556,12 +534,13 @@ def generate_launch_description():
         output='screen'
     )
 
-    # Gazebo Sim
+    # Gazebo Sim with custom world
+    custom_world_file = os.path.join(pkg_share, 'worlds', 'custom_world.sdf')
     gazebo = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             os.path.join(pkg_ros_gz_sim, 'launch', 'gz_sim.launch.py')
         ),
-        launch_arguments={{'gz_args': '-r empty.sdf'}}.items(),
+        launch_arguments={{'gz_args': f'-r {{custom_world_file}}'}}.items(),
     )
 
     # RViz
@@ -625,6 +604,71 @@ def generate_launch_description():
             f.write(launch_content)
         
         return launch_path
+    
+    def generate_custom_world(self):
+        """Generate custom world SDF file for Gazebo"""
+        world_content = '''<?xml version="1.0" ?>
+<sdf version="1.6">
+  <world name="catheter_world">
+    <physics name="1ms" type="ignored">
+      <max_step_size>0.001</max_step_size>
+      <real_time_factor>1.0</real_time_factor>
+    </physics>
+    <plugin filename="gz-sim-physics-system" name="gz::sim::systems::Physics"/>
+    <plugin filename="gz-sim-user-commands-system" name="gz::sim::systems::UserCommands"/>
+    <plugin filename="gz-sim-scene-broadcaster-system" name="gz::sim::systems::SceneBroadcaster"/>
+
+    <light type="directional" name="sun">
+      <cast_shadows>true</cast_shadows>
+      <pose>0 0 10 0 0 0</pose>
+      <diffuse>0.8 0.8 0.8 1</diffuse>
+      <specular>0.2 0.2 0.2 1</specular>
+      <attenuation>
+        <range>1000</range>
+        <constant>0.9</constant>
+        <linear>0.01</linear>
+        <quadratic>0.001</quadratic>
+      </attenuation>
+      <direction>-0.5 0.1 -0.9</direction>
+    </light>
+
+    <!-- Ground plane for reference -->
+    <model name="ground_plane">
+      <static>true</static>
+      <link name="link">
+        <collision name="collision">
+          <geometry>
+            <plane>
+              <normal>0 0 1</normal>
+              <size>100 100</size>
+            </plane>
+          </geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <plane>
+              <normal>0 0 1</normal>
+              <size>100 100</size>
+            </plane>
+          </geometry>
+          <material>
+            <ambient>0.8 0.8 0.8 1</ambient>
+            <diffuse>0.8 0.8 0.8 1</diffuse>
+            <specular>0.8 0.8 0.8 1</specular>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+  </world>
+</sdf>'''
+        
+        # Save world file
+        world_path = os.path.join(self.worlds_dir, "custom_world.sdf")
+        with open(world_path, 'w') as f:
+            f.write(world_content)
+        
+        return world_path
     
     def create_link_inertia(self, mass, length, radius):
         """Calculate inertia tensor for cylindrical link"""
@@ -885,12 +929,16 @@ def generate_launch_description():
         # Generate launch file
         launch_path = self.generate_launch_file(filename)
         
+        # Generate custom world file
+        world_path = self.generate_custom_world()
+        
         print(f"ROS2 package created: {self.package_dir}/")
         print(f"  Package files:")
         print(f"    - {os.path.relpath(package_xml_path, self.package_dir)}")
         print(f"    - {os.path.relpath(cmake_path, self.package_dir)}")
         print(f"  Xacro saved to: {os.path.relpath(xacro_path, self.package_dir)}")
-        print(f"  SDF saved to: {os.path.relpath(sdf_path, self.package_dir)}")
+        print(f"  SDF saved to: {os.path.relpath(sdf_path, self.package_dir)} (base fixed to world)")
+        print(f"  World file saved to: {os.path.relpath(world_path, self.package_dir)}")
         print(f"  Launch file saved to: {os.path.relpath(launch_path, self.package_dir)}")
         print(f"  STL files generated in: {os.path.relpath(self.meshes_dir, self.package_dir)}/")
         print(f"    - tip_link.stl")
