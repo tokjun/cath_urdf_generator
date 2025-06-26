@@ -27,13 +27,15 @@ import os
 
 
 class CatheterXacroGenerator:
-    def __init__(self, N, D, L1, L2, L3, K, M, package_dir="catheter_package"):
+    def __init__(self, N, D, L1, L2, L3, K, Kd, Kf, M, package_dir="catheter_package"):
         self.N = N
         self.D = D
         self.L1 = L1
         self.L2 = L2
         self.L3 = L3
         self.K = K
+        self.damping = Kd
+        self.friction = Kf
         self.M = M
         self.package_dir = package_dir
         self.meshes_dir = os.path.join(package_dir, "meshes")
@@ -61,8 +63,8 @@ class CatheterXacroGenerator:
         self.radius = self.D / 2
         
         # Mass distribution
-        self.tip_mass = self.M * (self.L1 / (self.L1 + self.L2 + self.L3))
-        self.base_mass = self.M * (self.L3 / (self.L1 + self.L2 + self.L3))
+        self.tip_mass = self.M * (self.L3 / (self.L1 + self.L2 + self.L3))
+        self.base_mass = self.M * (self.L1 / (self.L1 + self.L2 + self.L3))
         self.bending_mass_per_link = self.M * (self.L2 / (self.L1 + self.L2 + self.L3)) / self.bending_links if self.bending_links > 0 else 0
     
     def create_package_structure(self):
@@ -249,13 +251,13 @@ ament_package()'''
         # Add base link
         self._add_sdf_link(model, 'base_link',
                            parent_name=None,
-                           pose=f'0 0 {self.L3/2} 0 0 0',
+                           pose=f'0 0 {self.L1/2} 0 0 0',
                            mass=self.base_mass,
-                           length=self.L3,
+                           length=self.L1,
                            mesh_file=f'file://{os.path.abspath(os.path.join(self.meshes_dir, "base_link.stl"))}')
         
         # Add bending links
-        #current_z = self.L3
+        #current_z = self.L1
         parent_name = 'base_to_bending_1_y'
         for i in range(self.bending_links):
             link_name = f'bending_link_{i+1}'
@@ -273,9 +275,9 @@ ament_package()'''
         parent_name = f'bending_{self.bending_links}_to_tip_x'
         self._add_sdf_link(model, 'tip_link',
                            parent_name=parent_name,
-                           pose=f'0 0 {self.L1/2} 0 0 0',
+                           pose=f'0 0 {self.L3/2} 0 0 0',
                            mass=self.tip_mass,
-                           length=self.L1,
+                           length=self.L3,
                            mesh_file=f'model://{package_name}/meshes/tip_link.stl')
         
         # Add fixed joint to connect base link to world
@@ -379,8 +381,8 @@ ament_package()'''
         
         # Dynamics
         dynamics = ET.SubElement(axis, 'dynamics')
-        ET.SubElement(dynamics, 'damping').text = '0.1'
-        ET.SubElement(dynamics, 'friction').text = '0.01'
+        ET.SubElement(dynamics, 'damping').text = f'{self.damping}'
+        ET.SubElement(dynamics, 'friction').text = f'{self.friction}'
         ET.SubElement(dynamics, 'spring_stiffness').text = str(self.K)
     
     def _add_fixed_joint(self, parent, name, parent_link, child_link):
@@ -399,22 +401,22 @@ ament_package()'''
             intermediate_name = 'base_to_bending_1_x_rotation'
             joint_x = 'base_to_bending_1_x'
             joint_y = 'base_to_bending_1_y'
+            self._add_revolute_joint(model, joint_x, 'base_link', intermediate_name, '1 0 0', f'0 0 {self.L1/2} 0 0 0')
             self._add_intermediate_link(model,
                                         name=intermediate_name,
                                         parent_name=joint_x,
                                         #parent_name=None,
-                                        pose=f'0 0 {self.L3} 0 0 0')
-            self._add_revolute_joint(model, joint_x, 'base_link', intermediate_name, '1 0 0', f'0 0 {self.L3} 0 0 0')
+                                        #pose=f'0 0 {self.L1} 0 0 0')
+                                        pose=f'0 0 0 0 0 0')
             self._add_revolute_joint(model, joint_y, intermediate_name, 'bending_link_1', '0 1 0')
             joint_names.extend([joint_x, joint_y])
             
             # Bending link universal joints
             for i in range(1, self.bending_links):
-                current_z = self.L3 + i * self.bending_link_length
                 intermediate_name = f'bending_{i}_to_{i+1}_x_rotation'
                 joint_x = f'bending_{i}_to_{i+1}_x'
                 joint_y = f'bending_{i}_to_{i+1}_y'
-                self._add_revolute_joint(model, joint_x, f'bending_link_{i}', intermediate_name, '1 0 0', f'0 0 {self.bending_link_length} 0 0 0')
+                self._add_revolute_joint(model, joint_x, f'bending_link_{i}', intermediate_name, '1 0 0', f'0 0 {self.bending_link_length/2} 0 0 0')
                 self._add_intermediate_link(model,
                                             name=intermediate_name,
                                             parent_name=joint_x,
@@ -427,7 +429,7 @@ ament_package()'''
             intermediate_name = f'bending_{self.bending_links}_to_tip_x_rotation'
             joint_x = f'bending_{self.bending_links}_to_tip_x'
             joint_y = f'bending_{self.bending_links}_to_tip_y'
-            self._add_revolute_joint(model, joint_x, f'bending_link_{self.bending_links}', intermediate_name, '1 0 0', f'0 0 {self.bending_link_length} 0 0 0')
+            self._add_revolute_joint(model, joint_x, f'bending_link_{self.bending_links}', intermediate_name, '1 0 0', f'0 0 {self.bending_link_length/2} 0 0 0')
             self._add_intermediate_link(model,
                                         name=intermediate_name,
                                         parent_name=joint_x,
@@ -439,7 +441,7 @@ ament_package()'''
             intermediate_name = 'base_to_tip_x_rotation'
             joint_x = 'base_to_tip_x'
             joint_y = 'base_to_tip_y'
-            self._add_revolute_joint(model, joint_x, 'base_link', intermediate_name, '1 0 0', f'0 0 {self.L3} 0 0 0')
+            self._add_revolute_joint(model, joint_x, 'base_link', intermediate_name, '1 0 0', f'0 0 {self.L1/2} 0 0 0')
             self._add_intermediate_link(model,
                                         name=intermediate_name,
                                         parent_name=joint_x,
@@ -708,7 +710,7 @@ def generate_launch_description():
         if joint_type == "revolute":
             ET.SubElement(joint, 'limit', lower=str(-math.pi/2), upper=str(math.pi/2), 
                          effort="100", velocity="10")
-            ET.SubElement(joint, 'dynamics', damping="0.1", friction="0.01")
+            ET.SubElement(joint, 'dynamics', damping=f'{self.damping}', friction=f'{self.friction}')
     
     def add_spring_plugin(self, root, joint_name, spring_constant):
         """Add Gazebo plugin for spring behavior"""
@@ -725,8 +727,8 @@ def generate_launch_description():
         robot.set('xmlns:xacro', 'http://www.ros.org/wiki/xacro')
         
         # Generate STL files for different link types
-        tip_stl = self.generate_cylinder_stl(self.radius, self.L1, "tip_link.stl")
-        base_stl = self.generate_cylinder_stl(self.radius, self.L3, "base_link.stl")
+        tip_stl = self.generate_cylinder_stl(self.radius, self.L3, "tip_link.stl")
+        base_stl = self.generate_cylinder_stl(self.radius, self.L1, "base_link.stl")
         bending_stl = self.generate_cylinder_stl(self.radius, self.bending_link_length, "bending_link.stl")
         
         # Add xacro properties
@@ -742,7 +744,7 @@ def generate_launch_description():
         package_name = os.path.basename(self.package_dir)
         ET.SubElement(robot, 'xacro:catheter_link',
                      name='base_link', mass='${base_mass}', length='${base_length}',
-                     radius='${catheter_radius}', xyz_origin=f'0 0 {self.L3/2}',
+                     radius='${catheter_radius}', xyz_origin=f'0 0 {self.L1/2}',
                      mesh_file=f'package://{package_name}/meshes/base_link.stl')
         
         for i in range(self.bending_links):
@@ -754,7 +756,7 @@ def generate_launch_description():
         
         ET.SubElement(robot, 'xacro:catheter_link',
                      name='tip_link', mass='${tip_mass}', length='${tip_length}',
-                     radius='${catheter_radius}', xyz_origin=f'0 0 {self.L1/2}',
+                     radius='${catheter_radius}', xyz_origin=f'0 0 {self.L3/2}',
                      mesh_file=f'package://{package_name}/meshes/tip_link.stl')
         
         # Use macros to create joints with same naming as SDF
@@ -763,7 +765,7 @@ def generate_launch_description():
             # Base to first bending link
             ET.SubElement(robot, 'xacro:universal_joint',
                          name='base_to_bending_1', parent='base_link', child='bending_link_1',
-                         xyz_origin=f'0 0 {self.L3}', spring_k='${spring_constant}')
+                         xyz_origin=f'0 0 {self.L1}', spring_k='${spring_constant}')
             
             # Intermediate bending link joints
             for i in range(1, self.bending_links):
@@ -781,7 +783,7 @@ def generate_launch_description():
             # Direct base to tip if no bending links
             ET.SubElement(robot, 'xacro:universal_joint',
                          name='base_to_tip', parent='base_link', child='tip_link',
-                         xyz_origin=f'0 0 {self.L3}', spring_k='${spring_constant}')
+                         xyz_origin=f'0 0 {self.L1}', spring_k='${spring_constant}')
         
         return robot
     
@@ -790,9 +792,9 @@ def generate_launch_description():
         ET.SubElement(root, 'xacro:property', name='catheter_links', value=str(self.N))
         ET.SubElement(root, 'xacro:property', name='catheter_diameter', value=str(self.D))
         ET.SubElement(root, 'xacro:property', name='catheter_radius', value=str(self.radius))
-        ET.SubElement(root, 'xacro:property', name='tip_length', value=str(self.L1))
+        ET.SubElement(root, 'xacro:property', name='tip_length', value=str(self.L3))
         ET.SubElement(root, 'xacro:property', name='bending_length', value=str(self.L2))
-        ET.SubElement(root, 'xacro:property', name='base_length', value=str(self.L3))
+        ET.SubElement(root, 'xacro:property', name='base_length', value=str(self.L1))
         ET.SubElement(root, 'xacro:property', name='spring_constant', value=str(self.K))
         ET.SubElement(root, 'xacro:property', name='total_mass', value=str(self.M))
         ET.SubElement(root, 'xacro:property', name='bending_links', value=str(self.bending_links))
@@ -858,7 +860,7 @@ def generate_launch_description():
         ET.SubElement(joint_x, 'axis', xyz='1 0 0')
         ET.SubElement(joint_x, 'limit', lower=str(-math.pi/2), upper=str(math.pi/2), 
                      effort='100', velocity='10')
-        ET.SubElement(joint_x, 'dynamics', damping='0.1', friction='0.01')
+        ET.SubElement(joint_x, 'dynamics', damping=f'{self.damping}', friction=f'{self.friction}')
         
         # Y-axis joint (intermediate -> child)
         joint_y = ET.SubElement(macro, 'joint', name='${name}_y', type='revolute')
@@ -868,7 +870,7 @@ def generate_launch_description():
         ET.SubElement(joint_y, 'axis', xyz='0 1 0')
         ET.SubElement(joint_y, 'limit', lower=str(-math.pi/2), upper=str(math.pi/2), 
                      effort='100', velocity='10')
-        ET.SubElement(joint_y, 'dynamics', damping='0.1', friction='0.01')
+        ET.SubElement(joint_y, 'dynamics', damping=f'{self.damping}', friction=f'{self.friction}')
         
         # Spring plugins for Gazebo
         gazebo_x = ET.SubElement(macro, 'gazebo')
@@ -945,11 +947,14 @@ def main():
     parser = argparse.ArgumentParser(description="Generate Xacro for flexible catheter")
     parser.add_argument("--N", type=int, default=5, help="Number of links")
     parser.add_argument("--D", type=float, default=0.002, help="Outer diameter (m)")
-    parser.add_argument("--L1", type=float, default=0.01, help="Tip link length (m)")
+    parser.add_argument("--L1", type=float, default=0.05, help="Base link length (m)")
     parser.add_argument("--L2", type=float, default=0.1, help="Bending section length (m)")
-    parser.add_argument("--L3", type=float, default=0.05, help="Base link length (m)")
+    parser.add_argument("--L3", type=float, default=0.01, help="Tip link length (m)")
     parser.add_argument("--K", type=float, default=0.1, help="Spring constant (Nm/rad)")
+    parser.add_argument("--Kd", type=float, default=0.1, help="Damping constant")
+    parser.add_argument("--Kf", type=float, default=0.01, help="Friction")
     parser.add_argument("--M", type=float, default=0.01, help="Total mass (kg)")
+
     parser.add_argument("--output", type=str, default="catheter_package", 
                        help="Package directory name")
     parser.add_argument("--xacro-name", type=str, default=None, 
@@ -958,16 +963,18 @@ def main():
     args = parser.parse_args()
     
     try:
-        generator = CatheterXacroGenerator(args.N, args.D, args.L1, args.L2, args.L3, args.K, args.M, args.output)
+        generator = CatheterXacroGenerator(args.N, args.D, args.L1, args.L2, args.L3, args.K, args.Kd, args.Kf, args.M, args.output)
         generator.save_xacro(args.xacro_name)
         
         print(f"Generated catheter with parameters:")
         print(f"  Links: {args.N}")
         print(f"  Diameter: {args.D} m")
-        print(f"  Tip length: {args.L1} m")
+        print(f"  Base length: {args.L1} m")
         print(f"  Bending section length: {args.L2} m")
-        print(f"  Base length: {args.L3} m")
+        print(f"  Tip length: {args.L3} m")
         print(f"  Spring constant: {args.K} Nm/rad")
+        print(f"  Damping constant: {args.Kd}")
+        print(f"  Friction constant: {args.Kf}")
         print(f"  Total mass: {args.M} kg")
         
     except ValueError as e:
