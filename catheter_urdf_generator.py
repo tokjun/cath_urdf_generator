@@ -56,6 +56,7 @@ class CatheterXacroGenerator:
     def calculate_derived_values(self):
         """Calculate derived values from input parameters"""
         self.bending_links = self.N - 2
+        #self.bending_link_length = self.L2 / self.bending_links if self.bending_links > 0 else 0
         self.bending_link_length = self.L2 / self.bending_links if self.bending_links > 0 else 0
         self.radius = self.D / 2
         
@@ -396,7 +397,7 @@ ament_package()'''
                                         parent_name=joint_x,
                                         #parent_name=None,
                                         pose=f'0 0 {self.L3} 0 0 0')
-            self._add_revolute_joint(model, joint_x, 'base_link', intermediate_name, '1 0 0')
+            self._add_revolute_joint(model, joint_x, 'base_link', intermediate_name, '1 0 0', f'0 0 {self.L3} 0 0 0')
             self._add_revolute_joint(model, joint_y, intermediate_name, 'bending_link_1', '0 1 0')
             joint_names.extend([joint_x, joint_y])
             
@@ -406,7 +407,7 @@ ament_package()'''
                 intermediate_name = f'bending_{i}_to_{i+1}_x_rotation'
                 joint_x = f'bending_{i}_to_{i+1}_x'
                 joint_y = f'bending_{i}_to_{i+1}_y'
-                self._add_revolute_joint(model, joint_x, f'bending_link_{i}', intermediate_name, '1 0 0')
+                self._add_revolute_joint(model, joint_x, f'bending_link_{i}', intermediate_name, '1 0 0', f'0 0 {self.bending_link_length} 0 0 0')
                 self._add_intermediate_link(model,
                                             name=intermediate_name,
                                             parent_name=joint_x,
@@ -419,7 +420,7 @@ ament_package()'''
             intermediate_name = f'bending_{self.bending_links}_to_tip_x_rotation'
             joint_x = f'bending_{self.bending_links}_to_tip_x'
             joint_y = f'bending_{self.bending_links}_to_tip_y'
-            self._add_revolute_joint(model, joint_x, f'bending_link_{self.bending_links}', intermediate_name, '1 0 0')
+            self._add_revolute_joint(model, joint_x, f'bending_link_{self.bending_links}', intermediate_name, '1 0 0', f'0 0 {self.bending_link_length} 0 0 0')
             self._add_intermediate_link(model,
                                         name=intermediate_name,
                                         parent_name=joint_x,
@@ -431,7 +432,7 @@ ament_package()'''
             intermediate_name = 'base_to_tip_x_rotation'
             joint_x = 'base_to_tip_x'
             joint_y = 'base_to_tip_y'
-            self._add_revolute_joint(model, joint_x, 'base_link', intermediate_name, '1 0 0')
+            self._add_revolute_joint(model, joint_x, 'base_link', intermediate_name, '1 0 0', f'0 0 {self.L3} 0 0 0')
             self._add_intermediate_link(model,
                                         name=intermediate_name,
                                         parent_name=joint_x,
