@@ -163,6 +163,9 @@ class CatheterXacroGenerator:
 
   <export>
     <build_type>ament_cmake</build_type>
+    <gazebo_ros gazebo_model_path="${{prefix}}/../"/>
+    <gazebo_ros gazebo_media_path="${{prefix}}/media"/>
+    <gazebo_ros plugin_path="${{prefix}}/plugins"/>
   </export>
 </package>'''
         
@@ -243,29 +246,36 @@ ament_package()'''
         model = ET.SubElement(sdf, 'model', name=package_name)
         
         # Add base link
-        self._add_sdf_link(model, 'base_link', 
-                          pose=f'0 0 {self.L3/2} 0 0 0',
-                          mass=self.base_mass,
-                          length=self.L3,
-                          mesh_file=f'file://{os.path.abspath(os.path.join(self.meshes_dir, "base_link.stl"))}')
+        self._add_sdf_link(model, 'base_link',
+                           parent_name=None,
+                           pose=f'0 0 {self.L3/2} 0 0 0',
+                           mass=self.base_mass,
+                           length=self.L3,
+                           mesh_file=f'file://{os.path.abspath(os.path.join(self.meshes_dir, "base_link.stl"))}')
         
         # Add bending links
-        current_z = self.L3
+        #current_z = self.L3
+        parent_name = 'base_to_bending_1_y'
         for i in range(self.bending_links):
             link_name = f'bending_link_{i+1}'
             self._add_sdf_link(model, link_name,
-                              pose=f'0 0 {current_z + self.bending_link_length/2} 0 0 0',
-                              mass=self.bending_mass_per_link,
-                              length=self.bending_link_length,
-                              mesh_file=f'model://{package_name}/meshes/bending_link.stl')
-            current_z += self.bending_link_length
+                               parent_name=parent_name,
+                               #parent_name=None,
+                               pose=f'0 0 {self.bending_link_length/2} 0 0 0',
+                               mass=self.bending_mass_per_link,
+                               length=self.bending_link_length,
+                               mesh_file=f'model://{package_name}/meshes/bending_link.stl')
+            parent_name = f'bending_{i+1}_to_{i+2}_y'
+            #current_z += self.bending_link_length
         
         # Add tip link
+        parent_name = f'bending_{self.bending_links}_to_tip_x'
         self._add_sdf_link(model, 'tip_link',
-                          pose=f'0 0 {current_z + self.L1/2} 0 0 0',
-                          mass=self.tip_mass,
-                          length=self.L1,
-                          mesh_file=f'model://{package_name}/meshes/tip_link.stl')
+                           parent_name=parent_name,
+                           pose=f'0 0 {self.L1/2} 0 0 0',
+                           mass=self.tip_mass,
+                           length=self.L1,
+                           mesh_file=f'model://{package_name}/meshes/tip_link.stl')
         
         # Add fixed joint to connect base link to world
         self._add_fixed_joint(model, 'world_to_base', 'world', 'base_link')
@@ -281,12 +291,15 @@ ament_package()'''
         
         return os.path.join(self.sdf_dir, sdf_filename)
     
-    def _add_sdf_link(self, parent, name, pose, mass, length, mesh_file):
+    def _add_sdf_link(self, parent, name, parent_name, pose, mass, length, mesh_file):
         """Add a link to SDF using ElementTree"""
         link = ET.SubElement(parent, 'link', name=name)
         
         # Pose
-        ET.SubElement(link, 'pose').text = pose
+        if parent_name==None:
+            ET.SubElement(link, 'pose').text = pose
+        else:
+            ET.SubElement(link, 'pose', relative_to=parent_name).text = pose
         
         # Inertial properties
         inertial = ET.SubElement(link, 'inertial')
@@ -319,11 +332,14 @@ ament_package()'''
         mesh = ET.SubElement(geometry, 'mesh')
         ET.SubElement(mesh, 'uri').text = mesh_file
     
-    def _add_intermediate_link(self, parent, name, pose):
+    def _add_intermediate_link(self, parent, name, parent_name, pose):
         """Add intermediate link for universal joints"""
         link = ET.SubElement(parent, 'link', name=name)
-        ET.SubElement(link, 'pose').text = pose
-        
+        if parent_name == None:
+            ET.SubElement(link, 'pose').text = pose
+        else:
+            ET.SubElement(link, 'pose', relative_to=parent_name).text = pose
+
         # Minimal inertial properties
         inertial = ET.SubElement(link, 'inertial')
         ET.SubElement(inertial, 'mass').text = '0.001'
@@ -340,7 +356,7 @@ ament_package()'''
         joint = ET.SubElement(parent, 'joint', name=name, type='revolute')
         ET.SubElement(joint, 'parent').text = parent_link
         ET.SubElement(joint, 'child').text = child_link
-        ET.SubElement(joint, 'pose').text = pose
+        ET.SubElement(joint, 'pose', relative_to=parent_link).text = pose
         
         # Axis
         axis = ET.SubElement(joint, 'axis')
@@ -373,10 +389,13 @@ ament_package()'''
         if self.bending_links > 0:
             # Base to first bending link
             intermediate_name = 'base_to_bending_1_x_rotation'
-            self._add_intermediate_link(model, intermediate_name, f'0 0 {self.L3} 0 0 0')
-            
             joint_x = 'base_to_bending_1_x'
             joint_y = 'base_to_bending_1_y'
+            self._add_intermediate_link(model,
+                                        name=intermediate_name,
+                                        parent_name=joint_x,
+                                        #parent_name=None,
+                                        pose=f'0 0 {self.L3} 0 0 0')
             self._add_revolute_joint(model, joint_x, 'base_link', intermediate_name, '1 0 0')
             self._add_revolute_joint(model, joint_y, intermediate_name, 'bending_link_1', '0 1 0')
             joint_names.extend([joint_x, joint_y])
@@ -385,32 +404,38 @@ ament_package()'''
             for i in range(1, self.bending_links):
                 current_z = self.L3 + i * self.bending_link_length
                 intermediate_name = f'bending_{i}_to_{i+1}_x_rotation'
-                self._add_intermediate_link(model, intermediate_name, f'0 0 {current_z} 0 0 0')
-                
                 joint_x = f'bending_{i}_to_{i+1}_x'
                 joint_y = f'bending_{i}_to_{i+1}_y'
                 self._add_revolute_joint(model, joint_x, f'bending_link_{i}', intermediate_name, '1 0 0')
+                self._add_intermediate_link(model,
+                                            name=intermediate_name,
+                                            parent_name=joint_x,
+                                            pose=f'0 0 0 0 0 0')
                 self._add_revolute_joint(model, joint_y, intermediate_name, f'bending_link_{i+1}', '0 1 0')
                 joint_names.extend([joint_x, joint_y])
-            
+
             # Last bending link to tip
             final_z = self.L3 + self.bending_links * self.bending_link_length
             intermediate_name = f'bending_{self.bending_links}_to_tip_x_rotation'
-            self._add_intermediate_link(model, intermediate_name, f'0 0 {final_z} 0 0 0')
-            
             joint_x = f'bending_{self.bending_links}_to_tip_x'
             joint_y = f'bending_{self.bending_links}_to_tip_y'
             self._add_revolute_joint(model, joint_x, f'bending_link_{self.bending_links}', intermediate_name, '1 0 0')
+            self._add_intermediate_link(model,
+                                        name=intermediate_name,
+                                        parent_name=joint_x,
+                                        pose=f'0 0 0 0 0 0')
             self._add_revolute_joint(model, joint_y, intermediate_name, 'tip_link', '0 1 0')
             joint_names.extend([joint_x, joint_y])
         else:
             # Direct base to tip universal joint
             intermediate_name = 'base_to_tip_x_rotation'
-            self._add_intermediate_link(model, intermediate_name, f'0 0 {self.L3} 0 0 0')
-            
             joint_x = 'base_to_tip_x'
             joint_y = 'base_to_tip_y'
             self._add_revolute_joint(model, joint_x, 'base_link', intermediate_name, '1 0 0')
+            self._add_intermediate_link(model,
+                                        name=intermediate_name,
+                                        parent_name=joint_x,
+                                        pose=f'0 0 0 0 0 0')
             self._add_revolute_joint(model, joint_y, intermediate_name, 'tip_link', '0 1 0')
             joint_names.extend([joint_x, joint_y])
         
@@ -423,8 +448,8 @@ ament_package()'''
                               filename='gz-sim-joint-state-publisher-system',
                               name='gz::sim::systems::JointStatePublisher')
         
-        for joint_name in joint_names:
-            ET.SubElement(plugin, 'joint_name').text = joint_name
+        #for joint_name in joint_names:
+        #    ET.SubElement(plugin, 'joint_name').text = joint_name
     
     def _save_sdf_file(self, sdf_root, filename):
         """Save SDF file with pretty formatting"""

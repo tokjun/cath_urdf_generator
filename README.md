@@ -32,6 +32,7 @@ python3 catheter_urdf_generator.py
 ```
 
 Generate a custom catheter:
+
 ```bash
 $ cd ~/ros2_ws/src
 $ python3 <path to catheter_urdf_generator>/catheter_urdf_generator.py --N 7 --D 0.003 --L1 0.015 --L2 0.08 --L3 0.04 --K 0.2 --M 0.008 --output my_catheter
@@ -43,6 +44,15 @@ $ source /opt/ros/humble/setup.bash
 $ source install/setup.bash
 $ ros2 run robot_state_publisher robot_state_publisher --ros-args -p robot_description:="$( xacro `ros2 pkg prefix my_catheter`/share/my_catheter/urdf/my_catheter.xacro )" 
 ```
+
+There is also a launch file:
+```bash
+$ cd ~/ros2_ws
+$ source /opt/ros/humble/setup.bash
+$ source install/setup.bash
+$ ros2 launch my_catheter my_catheter_launch.py
+```
+
 
 ### Output
 
