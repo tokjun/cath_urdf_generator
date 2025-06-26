@@ -101,7 +101,7 @@ class CatheterXacroGenerator:
         for i in range(n):
             faces.append([0, 2 + i, 2 + (i + 1) % n])
         
-        # Bottom cap triangles (fan from center)
+        # Bottom cap triangles (fan from center)0.00
         for i in range(n):
             faces.append([1, 2 + n + (i + 1) % n, 2 + n + i])
         
@@ -321,8 +321,11 @@ ament_package()'''
         # Visual
         visual = ET.SubElement(link, 'visual', name=f'{name}_visual')
         geometry = ET.SubElement(visual, 'geometry')
-        mesh = ET.SubElement(geometry, 'mesh')
-        ET.SubElement(mesh, 'uri').text = mesh_file
+        #mesh = ET.SubElement(geometry, 'mesh')
+        #ET.SubElement(mesh, 'uri').text = mesh_file
+        cyl = ET.SubElement(geometry, 'cylinder')
+        ET.SubElement(cyl, 'radius').text = f'{self.radius}'
+        ET.SubElement(cyl, 'length').text = f'{length}'
         material = ET.SubElement(visual, 'material')
         ET.SubElement(material, 'ambient').text = '0.8 0.8 0.8 1.0'
         ET.SubElement(material, 'diffuse').text = '0.8 0.8 0.8 1.0'
@@ -330,8 +333,12 @@ ament_package()'''
         # Collision
         collision = ET.SubElement(link, 'collision', name=f'{name}_collision')
         geometry = ET.SubElement(collision, 'geometry')
-        mesh = ET.SubElement(geometry, 'mesh')
-        ET.SubElement(mesh, 'uri').text = mesh_file
+        #mesh = ET.SubElement(geometry, 'mesh')
+        #ET.SubElement(mesh, 'uri').text = mesh_file
+        cyl = ET.SubElement(geometry, 'cylinder')
+        ET.SubElement(cyl, 'radius').text = f'{self.radius}'
+        ET.SubElement(cyl, 'length').text = f'{length}'
+
     
     def _add_intermediate_link(self, parent, name, parent_name, pose):
         """Add intermediate link for universal joints"""
