@@ -453,8 +453,8 @@ ament_package()'''
     
     def _add_joint_state_publisher(self, model, joint_names):
         """Add joint state publisher plugin"""
-        gazebo = ET.SubElement(model, 'gazebo')
-        plugin = ET.SubElement(gazebo, 'plugin', 
+        #gazebo = ET.SubElement(model, 'gazebo')
+        plugin = ET.SubElement(model, 'plugin',
                               filename='gz-sim-joint-state-publisher-system',
                               name='gz::sim::systems::JointStatePublisher')
         
@@ -569,10 +569,10 @@ def generate_launch_description():
         executable='parameter_bridge',
         arguments=[
             '/model/{package_name}_model/pose@geometry_msgs/msg/PoseStamped[gz.msgs.Pose',
-            '/world/empty/model/{package_name}_model/joint_state@sensor_msgs/msg/JointState[gz.msgs.Model'
+            '/world/catheter_world/model/{package_name}_model/joint_state@sensor_msgs/msg/JointState[gz.msgs.Model'
         ],
         remappings=[
-            ('/world/empty/model/{package_name}_model/joint_state', '/joint_states'),
+            ('/world/catheter_world/model/{package_name}_model/joint_state', '/joint_states'),
         ],
         output='screen'
     )
@@ -758,7 +758,8 @@ def generate_launch_description():
                      name='tip_link', mass='${tip_mass}', length='${tip_length}',
                      radius='${catheter_radius}', xyz_origin=f'0 0 {self.L3/2}',
                      mesh_file=f'package://{package_name}/meshes/tip_link.stl')
-        
+
+
         # Use macros to create joints with same naming as SDF
         # Position joints at the end of each parent link (now base to tip)
         if self.bending_links > 0:
@@ -784,7 +785,7 @@ def generate_launch_description():
             ET.SubElement(robot, 'xacro:universal_joint',
                          name='base_to_tip', parent='base_link', child='tip_link',
                          xyz_origin=f'0 0 {self.L1}', spring_k='${spring_constant}')
-        
+
         return robot
     
     def add_xacro_properties(self, root):
